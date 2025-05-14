@@ -13,13 +13,11 @@ const userSchema = new mongoose.Schema({
         unique: true,
         lowercase: true,
         trim: true,
-        match: [/^\S+@\S+\.\S+$/, "Invalid email format"],
     },
     phone: {
         type: String,
         required: true,
         unique: true,
-        match: [/^01[0-9]{8,9}$/, "Invalid phone number format"],
     },
     birthday: {
         type: Date,
@@ -28,7 +26,6 @@ const userSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true,
-        minlength: 6,
     },
     role: {
         type: String,
@@ -43,6 +40,14 @@ const userSchema = new mongoose.Schema({
     totalPurchaseAmount: {
         type: Number,
         default: 0,
+    },
+    totalPromotionAmount: {
+        type: Number,
+        default: 0,
+    },
+    firstPurchaseDate: {
+        type: Date,
+        default: null,
     },
     agreedToTerms: {
         type: Boolean,

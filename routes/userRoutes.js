@@ -9,7 +9,8 @@ const mongoose = require("mongoose");
 router.post(
     "/register",
     asyncHandler(async (req, res) => {
-        const { fullName, email, phone, birthday, password, agreedToTerms } = req.body;
+        const { fullName, email, phone, birthday, password, agreedToTerms } =
+            req.body;
 
         // 필수 필드 확인
         if (!fullName || !email || !phone || !birthday || !password) {
@@ -80,7 +81,9 @@ router.post(
             });
         } else {
             res.status(401);
-            throw new Error("이메일, 아이디 또는 비밀번호가 일치하지 않습니다.");
+            throw new Error(
+                "이메일, 아이디 또는 비밀번호가 일치하지 않습니다."
+            );
         }
     })
 );
@@ -136,9 +139,6 @@ router.put(
             return;
         }
 
-        // 누적 구매액 추가
-        user.totalPurchaseAmount += additionalAmount;
-
         // 등급 업데이트 (단일 결제 금액도 고려)
         updateMembershipLevel(user, additionalAmount);
 
@@ -154,8 +154,11 @@ router.put(
             birthday: user.birthday,
             membershipLevel: user.membershipLevel,
             totalPurchaseAmount: user.totalPurchaseAmount,
+            totalPromotionAmount: user.totalPromotionAmount,
+            firstPurchaseDate: user.firstPurchaseDate,
             token: generateToken(user._id),
         });
     })
 );
+
 module.exports = router;
