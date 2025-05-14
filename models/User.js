@@ -35,6 +35,15 @@ const userSchema = new mongoose.Schema({
         enum: ["user", "admin"],
         default: "user",
     },
+    membershipLevel: {
+        type: String,
+        enum: ["일반회원", "IPC회원", "대리점", "총판"],
+        default: "일반회원",
+    },
+    totalPurchaseAmount: {
+        type: Number,
+        default: 0,
+    },
     agreedToTerms: {
         type: Boolean,
         default: false,

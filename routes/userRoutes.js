@@ -2,8 +2,9 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
+const updateMembershipLevel = require("../utils/updateMembershipLevel");
 const asyncHandler = require("express-async-handler");
-
+const mongoose = require("mongoose");
 // 회원가입
 router.post(
     "/register",
@@ -73,6 +74,8 @@ router.post(
                 phone: user.phone,
                 birthday: user.birthday,
                 agreedToTerms: user.agreedToTerms,
+                membershipLevel: user.membershipLevel, // ✅ 회원 등급 추가
+                totalPurchaseAmount: user.totalPurchaseAmount, // ✅ 누적 구매액 추가
                 token: generateToken(user._id),
             });
         } else {
@@ -82,4 +85,77 @@ router.post(
     })
 );
 
+// 🔄 회원 정보 조회
+router.get(
+    "/profile",
+    asyncHandler(async (req, res) => {
+        const token = req.headers.authorization?.split(" ")[1];
+        if (!token) {
+            res.status(401);
+            throw new Error("토큰이 없습니다.");
+        }
+
+        const user = await User.findOne({ token });
+        if (!user) {
+            res.status(404);
+            throw new Error("사용자를 찾을 수 없습니다.");
+        }
+
+        res.json({
+            _id: user._id,
+            fullName: user.fullName,
+            email: user.email,
+            phone: user.phone,
+            birthday: user.birthday,
+            membershipLevel: user.membershipLevel,
+            totalPurchaseAmount: user.totalPurchaseAmount,
+        });
+    })
+);
+
+// 회원 정보 업데이트 (등급 반영)
+router.put(
+    "/update-profile/:userId",
+    asyncHandler(async (req, res) => {
+        const { userId } = req.params;
+        const { additionalAmount } = req.body;
+
+        console.log("📝 업데이트 요청:", userId, additionalAmount);
+
+        // 🛠️ userId가 ObjectId 형식인지 확인
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            console.error("❌ 유효하지 않은 사용자 ID:", userId);
+            res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return;
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            console.error("❌ 사용자를 찾을 수 없습니다:", userId);
+            res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return;
+        }
+
+        // 누적 구매액 추가
+        user.totalPurchaseAmount += additionalAmount;
+
+        // 등급 업데이트 (단일 결제 금액도 고려)
+        updateMembershipLevel(user, additionalAmount);
+
+        await user.save();
+
+        console.log("✅ 회원 정보 업데이트 완료:", user);
+
+        res.json({
+            _id: user._id,
+            fullName: user.fullName,
+            email: user.email,
+            phone: user.phone,
+            birthday: user.birthday,
+            membershipLevel: user.membershipLevel,
+            totalPurchaseAmount: user.totalPurchaseAmount,
+            token: generateToken(user._id),
+        });
+    })
+);
 module.exports = router;
