@@ -3,14 +3,25 @@ const router = express.Router();
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 const updateMembershipLevel = require("../utils/updateMembershipLevel");
+const distributeReferralEarnings = require("../utils/referralEarnings");
 const asyncHandler = require("express-async-handler");
 const mongoose = require("mongoose");
+
 // 회원가입
 router.post(
     "/register",
     asyncHandler(async (req, res) => {
-        const { fullName, email, phone, birthday, password, agreedToTerms } =
-            req.body;
+        const {
+            fullName,
+            email,
+            phone,
+            birthday,
+            password,
+            agreedToTerms,
+            accountNumber,
+            socialSecurityNumber,
+            referrerEmail, // 🔄 추천인 이메일 추가
+        } = req.body;
 
         // 필수 필드 확인
         if (!fullName || !email || !phone || !birthday || !password) {
@@ -32,6 +43,16 @@ router.post(
             throw new Error("이미 사용 중인 휴대폰 번호입니다.");
         }
 
+        // 추천인 확인 (이메일로 조회)
+        let referrer = null;
+        if (referrerEmail) {
+            referrer = await User.findOne({ email: referrerEmail });
+            if (!referrer) {
+                res.status(400);
+                throw new Error("추천인을 찾을 수 없습니다.");
+            }
+        }
+
         // 사용자 생성
         const user = await User.create({
             fullName,
@@ -40,6 +61,9 @@ router.post(
             birthday,
             password,
             agreedToTerms,
+            accountNumber,
+            socialSecurityNumber,
+            referrerId: referrer ? referrer._id : null,
         });
 
         res.status(201).json({
@@ -49,8 +73,16 @@ router.post(
             phone: user.phone,
             birthday: user.birthday,
             agreedToTerms: user.agreedToTerms,
+            accountNumber: user.accountNumber,
+            socialSecurityNumber: user.socialSecurityNumber,
+            referrerId: user.referrerId,
             token: generateToken(user._id),
         });
+
+        console.log("✅ 회원가입 완료:", user);
+        if (referrer) {
+            console.log("🔗 추천인 설정 완료:", referrer.fullName);
+        }
     })
 );
 
@@ -81,9 +113,7 @@ router.post(
             });
         } else {
             res.status(401);
-            throw new Error(
-                "이메일, 아이디 또는 비밀번호가 일치하지 않습니다."
-            );
+            throw new Error("이메일, 아이디 또는 비밀번호가 일치하지 않습니다.");
         }
     })
 );
@@ -112,11 +142,13 @@ router.get(
             birthday: user.birthday,
             membershipLevel: user.membershipLevel,
             totalPurchaseAmount: user.totalPurchaseAmount,
+            accountNumber: user.accountNumber,
+            socialSecurityNumber: user.socialSecurityNumber,
         });
     })
 );
 
-// 회원 정보 업데이트 (등급 반영)
+// 회원 정보 업데이트 (등급 반영 및 추천인 수당)
 router.put(
     "/update-profile/:userId",
     asyncHandler(async (req, res) => {
@@ -125,26 +157,33 @@ router.put(
 
         console.log("📝 업데이트 요청:", userId, additionalAmount);
 
-        // 🛠️ userId가 ObjectId 형식인지 확인
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            console.error("❌ 유효하지 않은 사용자 ID:", userId);
-            res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
-            return;
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            console.error("❌ 사용자를 찾을 수 없습니다:", userId);
-            res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
-            return;
+            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
         }
 
-        // 등급 업데이트 (단일 결제 금액도 고려)
+        // 💡 여기서 미리 첫 구매 여부 판단
+        const isFirstPurchase = !user.firstPurchaseDate;
+
+        // ✅ 첫 구매일 먼저 설정 (로컬 객체에만 적용 → DB 저장은 나중)
+        if (isFirstPurchase && additionalAmount >= 550000) {
+            user.firstPurchaseDate = new Date();
+            console.log("✅ 첫 구매일 설정 완료:", user.firstPurchaseDate);
+        }
+
+        // 등급 업데이트
         updateMembershipLevel(user, additionalAmount);
 
-        await user.save();
+        // ✅ 추천인 수당 지급
+        if (user.referrerId && additionalAmount >= 550000) {
+            await distributeReferralEarnings(user, additionalAmount, isFirstPurchase);
+        }
 
-        console.log("✅ 회원 정보 업데이트 완료:", user);
+        await user.save();
 
         res.json({
             _id: user._id,
@@ -155,9 +194,27 @@ router.put(
             membershipLevel: user.membershipLevel,
             totalPurchaseAmount: user.totalPurchaseAmount,
             totalPromotionAmount: user.totalPromotionAmount,
+            totalReferralEarnings: user.totalReferralEarnings,
             firstPurchaseDate: user.firstPurchaseDate,
             token: generateToken(user._id),
         });
+    })
+);
+
+// 🔄 추천인 수당 기록 조회
+router.get(
+    "/referral-earnings/:userId",
+    asyncHandler(async (req, res) => {
+        const { userId } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return;
+        }
+
+        const earnings = await Referral.find({ referrerId: userId }).populate("referredUserId");
+
+        res.json(earnings);
     })
 );
 

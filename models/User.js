@@ -53,6 +53,25 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    accountNumber: {
+        type: String,
+        trim: true,
+        default: "",
+    },
+    socialSecurityNumber: {
+        type: String,
+        trim: true,
+        default: "",
+    },
+    referrerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+    },
+    totalReferralEarnings: {
+        type: Number,
+        default: 0,
+    },
     createdAt: {
         type: Date,
         default: Date.now,
