@@ -76,6 +76,16 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    bankName: {
+        type: String,
+        trim: true,
+        default: "KEB하나은행",
+    },
+    address: {
+        type: String,
+        trim: true,
+        default: "",
+    },
 });
 
 // 비밀번호 암호화 (Pre-save Hook)

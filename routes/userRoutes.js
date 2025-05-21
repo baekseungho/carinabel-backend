@@ -1,7 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
+const Referral = require("../models/Referral");
+const Purchase = require("../models/Purchase");
 const generateToken = require("../utils/generateToken");
+const { protect } = require("../middleware/authMiddleware");
 const updateMembershipLevel = require("../utils/updateMembershipLevel");
 const distributeReferralEarnings = require("../utils/referralEarnings");
 const asyncHandler = require("express-async-handler");
@@ -20,7 +23,9 @@ router.post(
             agreedToTerms,
             accountNumber,
             socialSecurityNumber,
-            referrerEmail, // 🔄 추천인 이메일 추가
+            bankName, // ✅ 은행명 추가
+            address,
+            referrerEmail, // ✅ 추천인 이메일
         } = req.body;
 
         // 필수 필드 확인
@@ -63,6 +68,8 @@ router.post(
             agreedToTerms,
             accountNumber,
             socialSecurityNumber,
+            bankName: bankName || "KEB하나은행", // ✅ 기본값 처리
+            address: address || "",
             referrerId: referrer ? referrer._id : null,
         });
 
@@ -72,9 +79,11 @@ router.post(
             email: user.email,
             phone: user.phone,
             birthday: user.birthday,
+            address: user.address,
             agreedToTerms: user.agreedToTerms,
             accountNumber: user.accountNumber,
             socialSecurityNumber: user.socialSecurityNumber,
+            bankName: user.bankName, // ✅ 응답에도 포함
             referrerId: user.referrerId,
             token: generateToken(user._id),
         });
@@ -119,6 +128,8 @@ router.post(
 );
 
 // 🔄 회원 정보 조회
+const jwt = require("jsonwebtoken");
+
 router.get(
     "/profile",
     asyncHandler(async (req, res) => {
@@ -128,7 +139,16 @@ router.get(
             throw new Error("토큰이 없습니다.");
         }
 
-        const user = await User.findOne({ token });
+        let decoded;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET);
+        } catch (err) {
+            res.status(401);
+            throw new Error("유효하지 않은 토큰입니다.");
+        }
+
+        // ✅ referrerId 정보까지 populate해서 가져오기
+        const user = await User.findById(decoded.id).populate("referrerId", "email fullName");
         if (!user) {
             res.status(404);
             throw new Error("사용자를 찾을 수 없습니다.");
@@ -144,6 +164,12 @@ router.get(
             totalPurchaseAmount: user.totalPurchaseAmount,
             accountNumber: user.accountNumber,
             socialSecurityNumber: user.socialSecurityNumber,
+            createdAt: user.createdAt,
+            // ✅ 추천인 이메일 및 이름 전달
+            referrerEmail: user.referrerId?.email || null,
+            referrerName: user.referrerId?.fullName || null,
+            address: user.address || null,
+            bankName: user.bankName || "연동은행을 확인해주세요.",
         });
     })
 );
@@ -177,6 +203,12 @@ router.put(
 
         // 등급 업데이트
         updateMembershipLevel(user, additionalAmount);
+
+        // ✅ 구매 기록 저장 (자신의 구매 내역)
+        await Purchase.create({
+            userId: user._id,
+            amount: additionalAmount,
+        });
 
         // ✅ 추천인 수당 지급
         if (user.referrerId && additionalAmount >= 550000) {
@@ -217,5 +249,83 @@ router.get(
         res.json(earnings);
     })
 );
+// 🔍 추천 및 구매 통계
+router.get(
+    "/stats/:userId",
+    protect,
+    asyncHandler(async (req, res) => {
+        const { userId } = req.params;
 
+        // 🔒 요청자와 토큰의 userId 불일치 시 권한 거부
+        if (req.user.id !== userId) {
+            return res.status(403).json({ message: "권한이 없습니다." });
+        }
+
+        const monthStats = [];
+
+        for (let i = 0; i < 6; i++) {
+            const date = new Date();
+            date.setMonth(date.getMonth() - i);
+
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, "0");
+
+            const start = new Date(year, date.getMonth(), 1);
+            const end = new Date(year, date.getMonth() + 1, 0, 23, 59, 59);
+
+            // 당월 신규 추천 수
+            const monthlyRefCount = await User.countDocuments({
+                referrerId: userId,
+                createdAt: { $gte: start, $lte: end },
+            });
+
+            // 당월 본인 구매 금액
+            const purchaseAgg = await Purchase.aggregate([
+                {
+                    $match: {
+                        userId: new mongoose.Types.ObjectId(userId),
+                        createdAt: { $gte: start, $lte: end },
+                    },
+                },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$amount" },
+                    },
+                },
+            ]);
+            const monthlyPurchase = purchaseAgg[0]?.total || 0;
+
+            monthStats.unshift({
+                yearMonth: `${year}-${month}`,
+                monthlyRefCount,
+                monthlyPurchase,
+            });
+        }
+
+        // 총 추천인 수
+        const totalRefCount = await User.countDocuments({ referrerId: userId });
+
+        // 총 누적 구매액
+        const totalPurchaseAgg = await Purchase.aggregate([
+            {
+                $match: { userId: new mongoose.Types.ObjectId(userId) },
+            },
+            {
+                $group: {
+                    _id: null,
+                    total: { $sum: "$amount" },
+                },
+            },
+        ]);
+        const totalPurchase = totalPurchaseAgg[0]?.total || 0;
+
+        res.json({
+            stats: monthStats, // ✅ 배열 형태
+            totalRefCount,
+            totalPurchase,
+            token: generateToken(userId), // ✅ 갱신 토큰
+        });
+    })
+);
 module.exports = router;
