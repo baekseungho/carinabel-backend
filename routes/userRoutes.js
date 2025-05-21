@@ -122,7 +122,9 @@ router.post(
             });
         } else {
             res.status(401);
-            throw new Error("이메일, 아이디 또는 비밀번호가 일치하지 않습니다.");
+            throw new Error(
+                "이메일, 아이디 또는 비밀번호가 일치하지 않습니다."
+            );
         }
     })
 );
@@ -148,7 +150,10 @@ router.get(
         }
 
         // ✅ referrerId 정보까지 populate해서 가져오기
-        const user = await User.findById(decoded.id).populate("referrerId", "email fullName");
+        const user = await User.findById(decoded.id).populate(
+            "referrerId",
+            "email fullName"
+        );
         if (!user) {
             res.status(404);
             throw new Error("사용자를 찾을 수 없습니다.");
@@ -184,12 +189,16 @@ router.put(
         console.log("📝 업데이트 요청:", userId, additionalAmount);
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         // 💡 여기서 미리 첫 구매 여부 판단
@@ -212,7 +221,11 @@ router.put(
 
         // ✅ 추천인 수당 지급
         if (user.referrerId && additionalAmount >= 550000) {
-            await distributeReferralEarnings(user, additionalAmount, isFirstPurchase);
+            await distributeReferralEarnings(
+                user,
+                additionalAmount,
+                isFirstPurchase
+            );
         }
 
         await user.save();
@@ -244,7 +257,9 @@ router.get(
             return;
         }
 
-        const earnings = await Referral.find({ referrerId: userId }).populate("referredUserId");
+        const earnings = await Referral.find({ referrerId: userId }).populate(
+            "referredUserId"
+        );
 
         res.json(earnings);
     })
@@ -328,4 +343,104 @@ router.get(
         });
     })
 );
+
+// 🔧 기간별 구매 금액 계산 함수
+const getPurchaseAmount = async (userId, period = "전체") => {
+    const now = new Date();
+    let match = { userId: new mongoose.Types.ObjectId(userId) };
+
+    if (period === "당월") {
+        match.createdAt = {
+            $gte: new Date(now.getFullYear(), now.getMonth(), 1),
+            $lte: new Date(
+                now.getFullYear(),
+                now.getMonth() + 1,
+                0,
+                23,
+                59,
+                59
+            ),
+        };
+    } else if (period === "전월") {
+        match.createdAt = {
+            $gte: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+            $lte: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
+        };
+    }
+
+    const agg = await Purchase.aggregate([
+        { $match: match },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+
+    return agg[0]?.total || 0;
+};
+
+// 🔍 조직도 기반 회원 정보 + 구매 금액 조회
+router.get(
+    "/network/:userId",
+    asyncHandler(async (req, res) => {
+        const { userId } = req.params;
+        const { period = "전체" } = req.query;
+
+        // 🔸 로그인 사용자
+        const user = await User.findById(userId).select(
+            "fullName email membershipLevel referrerId"
+        );
+        if (!user) {
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
+        }
+
+        // 🔼 추천인 (상단 노드)
+        let referrer = null;
+        if (user.referrerId) {
+            const refUser = await User.findById(user.referrerId).select(
+                "fullName email membershipLevel"
+            );
+            if (refUser) {
+                const refPurchaseAmount = await getPurchaseAmount(
+                    refUser._id,
+                    period
+                );
+                referrer = {
+                    ...refUser.toObject(),
+                    purchaseAmount: refPurchaseAmount,
+                };
+            }
+        }
+
+        // 🔽 내가 추천한 사용자들
+        const children = await User.find({ referrerId: userId }).select(
+            "fullName email membershipLevel"
+        );
+
+        const childStats = await Promise.all(
+            children.map(async (child) => {
+                const amount = await getPurchaseAmount(child._id, period);
+                return {
+                    ...child.toObject(),
+                    purchaseAmount: amount,
+                };
+            })
+        );
+
+        // 🔵 내 구매금액
+        const myPurchaseAmount = await getPurchaseAmount(user._id, period);
+
+        res.json({
+            center: {
+                _id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                membershipLevel: user.membershipLevel,
+                purchaseAmount: myPurchaseAmount,
+            },
+            parent: referrer,
+            children: childStats,
+        });
+    })
+);
+
 module.exports = router;
