@@ -6,6 +6,10 @@ const orderSchema = new mongoose.Schema({
         ref: "User",
         required: true,
     },
+    productName: {
+        type: String, // ✅ 상품명 추가
+        required: true,
+    },
     quantity: {
         type: Number,
         required: true,
