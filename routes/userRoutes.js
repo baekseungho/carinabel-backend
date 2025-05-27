@@ -68,9 +68,20 @@ router.post(
             agreedToTerms,
             accountNumber,
             socialSecurityNumber,
-            bankName: bankName || "KEB하나은행", // ✅ 기본값 처리
+            bankName: bankName || "KEB하나은행",
             address: address || "",
             referrerId: referrer ? referrer._id : null,
+        });
+
+        // ✅ 기본 배송지도 함께 생성
+        const Address = require("../models/Address");
+        await Address.create({
+            userId: user._id,
+            recipientName: user.fullName,
+            phone: "", // 일반 전화번호 없음
+            mobile: user.phone,
+            address: user.address || "",
+            isDefault: true,
         });
 
         res.status(201).json({
@@ -83,7 +94,7 @@ router.post(
             agreedToTerms: user.agreedToTerms,
             accountNumber: user.accountNumber,
             socialSecurityNumber: user.socialSecurityNumber,
-            bankName: user.bankName, // ✅ 응답에도 포함
+            bankName: user.bankName,
             referrerId: user.referrerId,
             token: generateToken(user._id),
         });
@@ -94,7 +105,6 @@ router.post(
         }
     })
 );
-
 // 로그인
 router.post(
     "/login",
@@ -122,7 +132,9 @@ router.post(
             });
         } else {
             res.status(401);
-            throw new Error("이메일, 아이디 또는 비밀번호가 일치하지 않습니다.");
+            throw new Error(
+                "이메일, 아이디 또는 비밀번호가 일치하지 않습니다."
+            );
         }
     })
 );
@@ -148,7 +160,10 @@ router.get(
         }
 
         // ✅ referrerId 정보까지 populate해서 가져오기
-        const user = await User.findById(decoded.id).populate("referrerId", "email fullName");
+        const user = await User.findById(decoded.id).populate(
+            "referrerId",
+            "email fullName"
+        );
         if (!user) {
             res.status(404);
             throw new Error("사용자를 찾을 수 없습니다.");
@@ -184,12 +199,16 @@ router.put(
         console.log("📝 업데이트 요청:", userId, additionalAmount);
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         // 💡 여기서 미리 첫 구매 여부 판단
@@ -212,7 +231,11 @@ router.put(
 
         // ✅ 추천인 수당 지급
         if (user.referrerId && additionalAmount >= 550000) {
-            await distributeReferralEarnings(user, additionalAmount, isFirstPurchase);
+            await distributeReferralEarnings(
+                user,
+                additionalAmount,
+                isFirstPurchase
+            );
         }
 
         await user.save();
@@ -240,7 +263,9 @@ router.get(
         const { userId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const monthStats = [];
@@ -387,7 +412,14 @@ const getPurchaseAmount = async (userId, period = "전체") => {
     if (period === "당월") {
         match.createdAt = {
             $gte: new Date(now.getFullYear(), now.getMonth(), 1),
-            $lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+            $lte: new Date(
+                now.getFullYear(),
+                now.getMonth() + 1,
+                0,
+                23,
+                59,
+                59
+            ),
         };
     } else if (period === "전월") {
         match.createdAt = {
@@ -396,7 +428,10 @@ const getPurchaseAmount = async (userId, period = "전체") => {
         };
     }
 
-    const agg = await Purchase.aggregate([{ $match: match }, { $group: { _id: null, total: { $sum: "$amount" } } }]);
+    const agg = await Purchase.aggregate([
+        { $match: match },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
 
     return agg[0]?.total || 0;
 };
@@ -409,17 +444,26 @@ router.get(
         const { period = "전체" } = req.query;
 
         // 🔸 로그인 사용자
-        const user = await User.findById(userId).select("fullName email membershipLevel referrerId");
+        const user = await User.findById(userId).select(
+            "fullName email membershipLevel referrerId"
+        );
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         // 🔼 추천인 (상단 노드)
         let referrer = null;
         if (user.referrerId) {
-            const refUser = await User.findById(user.referrerId).select("fullName email membershipLevel");
+            const refUser = await User.findById(user.referrerId).select(
+                "fullName email membershipLevel"
+            );
             if (refUser) {
-                const refPurchaseAmount = await getPurchaseAmount(refUser._id, period);
+                const refPurchaseAmount = await getPurchaseAmount(
+                    refUser._id,
+                    period
+                );
                 referrer = {
                     ...refUser.toObject(),
                     purchaseAmount: refPurchaseAmount,
@@ -428,7 +472,9 @@ router.get(
         }
 
         // 🔽 내가 추천한 사용자들
-        const children = await User.find({ referrerId: userId }).select("fullName email membershipLevel");
+        const children = await User.find({ referrerId: userId }).select(
+            "fullName email membershipLevel"
+        );
 
         const childStats = await Promise.all(
             children.map(async (child) => {
@@ -464,7 +510,9 @@ router.get(
         const { userId, yearMonth } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const [year, month] = yearMonth.split("-");

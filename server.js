@@ -7,6 +7,7 @@ const userRoutes = require("./routes/userRoutes");
 const productRoutes = require("./routes/productRoutes");
 const cartRoutes = require("./routes/cartRoutes");
 const orderRoutes = require("./routes/orderRoutes");
+const addressRoutes = require("./routes/addressRoutes");
 // 환경변수 설정
 dotenv.config();
 
@@ -39,6 +40,9 @@ app.use("/api/cart", cartRoutes);
 
 // 🆕 주문 라우터 등록
 app.use("/api/orders", orderRoutes);
+
+// 주소 라우터
+app.use("/api/addresses", addressRoutes);
 
 // 서버 시작
 const PORT = process.env.PORT || 5000;
