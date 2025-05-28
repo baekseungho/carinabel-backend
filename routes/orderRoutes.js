@@ -5,26 +5,25 @@ const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Purchase = require("../models/Purchase");
 const User = require("../models/User");
-
+const Product = require("../models/Product");
+const Address = require("../models/Address"); // 기본 배송지 모델
 // 주문 생성 API
 router.post(
     "/create",
     asyncHandler(async (req, res) => {
-        const { userId, amount, quantity, status, deliveryDate, productName } =
-            req.body;
+        const { userId, amount, quantity, status, deliveryDate, productName, imagePath } = req.body;
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
         console.log("🧾 주문 생성 요청:", req.body);
         // Order에 저장
         const newOrder = await Order.create({
             userId,
-            productName, // ✅ 저장
+            productName,
+            imagePath, // ✅ 이미지 경로 저장
             amount,
             quantity,
-            status: status || "결제완료",
+            status: status || "",
             deliveryDate: deliveryDate || null,
         });
 
@@ -44,13 +43,9 @@ router.get(
     asyncHandler(async (req, res) => {
         const { userId } = req.query;
 
-        const match = userId
-            ? { userId: new mongoose.Types.ObjectId(userId) }
-            : {};
+        const match = userId ? { userId: new mongoose.Types.ObjectId(userId) } : {};
 
-        const orders = await Order.find(match)
-            .populate("userId", "fullName email referrerId")
-            .sort({ createdAt: -1 });
+        const orders = await Order.find(match).populate("userId", "fullName email referrerId").sort({ createdAt: -1 });
 
         res.json(orders);
     })
@@ -63,14 +58,10 @@ router.get(
         const { referrerId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(referrerId)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 추천인 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 추천인 ID입니다." });
         }
 
-        const referredUsers = await User.find({ referrerId }).select(
-            "_id fullName email"
-        );
+        const referredUsers = await User.find({ referrerId }).select("_id fullName email");
         const referredIds = referredUsers.map((u) => u._id);
 
         if (!referredIds.length) return res.json([]);
@@ -90,4 +81,61 @@ router.get(
     })
 );
 
+// 주문 상세 정보 통합 조회 API
+router.get(
+    "/detail/:orderId",
+    asyncHandler(async (req, res) => {
+        const { orderId } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(orderId)) {
+            return res.status(400).json({ message: "유효하지 않은 주문 ID입니다." });
+        }
+
+        const order = await Order.findById(orderId).populate("userId", "fullName email phone mobile address").lean();
+
+        if (!order) {
+            return res.status(404).json({ message: "주문 정보를 찾을 수 없습니다." });
+        }
+
+        // 상품 정보
+        const product = await Product.findOne({ koreanName: order.productName }).lean();
+
+        // 배송지 정보
+        let delivery = null;
+        if (order.deliveryAddressId) {
+            delivery = await Address.findById(order.deliveryAddressId).lean();
+        } else if (order.userId.address) {
+            delivery = {
+                recipientName: order.userId.fullName,
+                phone: order.userId.phone,
+                mobile: order.userId.mobile,
+                fullAddress: order.userId.address,
+            };
+        }
+
+        // 가상계좌 정보 (예시)
+        const payment = {
+            method: "가상계좌",
+            status: order.status,
+            bank: order.userId.bankName || "KEB하나은행",
+            virtualAccount: order.userId.accountNumber || "00000000000000",
+            dueDate: order.createdAt ? new Date(new Date(order.createdAt).getTime() + 3 * 24 * 60 * 60 * 1000) : null,
+        };
+
+        res.json({
+            _id: order._id,
+            createdAt: order.createdAt,
+            product: {
+                productName: order.productName,
+                imagePath: product?.imagePath || "/img/default.jpg",
+                amount: order.amount,
+                quantity: order.quantity,
+            },
+            status: order.status,
+            user: order.userId,
+            delivery,
+            payment,
+        });
+    })
+);
 module.exports = router;

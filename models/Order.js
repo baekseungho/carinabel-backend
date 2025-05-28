@@ -21,12 +21,17 @@ const orderSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["결제완료", "배송중", "배송완료", "취소됨"],
-        default: "결제완료",
+        enum: ["미결제", "결제완료", "배송중", "배송완료", "취소됨"],
+        default: "미결제",
+    },
+    imagePath: {
+        type: String,
+        default: "",
     },
     deliveryDate: {
         type: Date,
     },
+
     createdAt: {
         type: Date,
         default: Date.now,
