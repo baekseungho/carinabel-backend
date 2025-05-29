@@ -8,6 +8,7 @@ const productRoutes = require("./routes/productRoutes");
 const cartRoutes = require("./routes/cartRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const addressRoutes = require("./routes/addressRoutes");
+const qnaRoutes = require("./routes/qnaRoutes");
 // 환경변수 설정
 dotenv.config();
 
@@ -44,6 +45,9 @@ app.use("/api/orders", orderRoutes);
 // 주소 라우터
 app.use("/api/addresses", addressRoutes);
 
+// QnA 라우터
+app.use("/api/qna", qnaRoutes);
 // 서버 시작
 const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

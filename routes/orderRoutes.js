@@ -102,15 +102,13 @@ router.get(
 
         // 배송지 정보
         let delivery = null;
+
         if (order.deliveryAddressId) {
+            // 주문에 지정된 배송지 ID가 있으면 해당 주소를 사용
             delivery = await Address.findById(order.deliveryAddressId).lean();
-        } else if (order.userId.address) {
-            delivery = {
-                recipientName: order.userId.fullName,
-                phone: order.userId.phone,
-                mobile: order.userId.mobile,
-                fullAddress: order.userId.address,
-            };
+        } else {
+            // 그렇지 않으면 기본 배송지를 찾아서 사용
+            delivery = await Address.findOne({ userId: order.userId._id, isDefault: true }).lean();
         }
 
         // 가상계좌 정보 (예시)
