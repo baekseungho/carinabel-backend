@@ -9,7 +9,16 @@ const mongoose = require("mongoose");
 router.get(
     "/",
     asyncHandler(async (req, res) => {
-        const { category, searchType, keyword, page = 1, size = 10 } = req.query;
+        const {
+            category,
+            searchType,
+            keyword,
+            page = "1", // string 기본값
+            size = "10",
+        } = req.query;
+
+        const pageInt = Math.max(parseInt(page), 1); // 최소 1
+        const sizeInt = Math.max(parseInt(size), 1); // 최소 1
 
         const query = {};
 
@@ -25,9 +34,6 @@ router.get(
             else if (searchType === "content") query.content = regex;
             else if (searchType === "title_content") query.$or = [{ title: regex }, { content: regex }];
         }
-
-        const pageInt = parseInt(page);
-        const sizeInt = parseInt(size);
 
         const total = await QnA.countDocuments(query);
 
