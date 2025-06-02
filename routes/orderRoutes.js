@@ -11,9 +11,19 @@ const Address = require("../models/Address"); // 기본 배송지 모델
 router.post(
     "/create",
     asyncHandler(async (req, res) => {
-        const { userId, amount, quantity, status, deliveryDate, productName, imagePath } = req.body;
+        const {
+            userId,
+            amount,
+            quantity,
+            status,
+            deliveryDate,
+            productName,
+            imagePath,
+        } = req.body;
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
         console.log("🧾 주문 생성 요청:", req.body);
         // Order에 저장
@@ -41,13 +51,24 @@ router.post(
 router.get(
     "/",
     asyncHandler(async (req, res) => {
-        const { userId } = req.query;
+        const { userId, page = 1, size = 5, status = "all" } = req.query;
 
-        const match = userId ? { userId: new mongoose.Types.ObjectId(userId) } : {};
+        const match = userId
+            ? { userId: new mongoose.Types.ObjectId(userId) }
+            : {};
+        if (status !== "all") {
+            match.status = status;
+        }
 
-        const orders = await Order.find(match).populate("userId", "fullName email referrerId").sort({ createdAt: -1 });
+        const skip = (Number(page) - 1) * Number(size);
+        const total = await Order.countDocuments(match);
+        const orders = await Order.find(match)
+            .populate("userId", "fullName email referrerId")
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(Number(size));
 
-        res.json(orders);
+        res.json({ orders, total });
     })
 );
 
@@ -58,10 +79,14 @@ router.get(
         const { referrerId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(referrerId)) {
-            return res.status(400).json({ message: "유효하지 않은 추천인 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 추천인 ID입니다." });
         }
 
-        const referredUsers = await User.find({ referrerId }).select("_id fullName email");
+        const referredUsers = await User.find({ referrerId }).select(
+            "_id fullName email"
+        );
         const referredIds = referredUsers.map((u) => u._id);
 
         if (!referredIds.length) return res.json([]);
@@ -81,6 +106,43 @@ router.get(
     })
 );
 
+// 추천 하위 유저 주문(페이징)
+router.get(
+    "/referred-paged",
+    asyncHandler(async (req, res) => {
+        const { referrerId, page = 1, size = 5 } = req.query;
+
+        // 🔍 referrerId 유효성 검사
+        if (!referrerId || !mongoose.Types.ObjectId.isValid(referrerId)) {
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 추천인 ID입니다." });
+        }
+
+        const referredUsers = await User.find({ referrerId }).select(
+            "_id fullName email"
+        );
+        const referredIds = referredUsers.map((u) => u._id);
+
+        if (!referredIds.length) return res.json({ orders: [], total: 0 });
+
+        const match = { userId: { $in: referredIds } };
+        const skip = (Number(page) - 1) * Number(size);
+        const total = await Order.countDocuments(match);
+        const orders = await Order.find(match)
+            .populate({
+                path: "userId",
+                select: "fullName email referrerId",
+                populate: { path: "referrerId", select: "fullName email" },
+            })
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(Number(size));
+
+        res.json({ orders, total });
+    })
+);
+
 // 주문 상세 정보 통합 조회 API
 router.get(
     "/detail/:orderId",
@@ -88,17 +150,25 @@ router.get(
         const { orderId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(orderId)) {
-            return res.status(400).json({ message: "유효하지 않은 주문 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 주문 ID입니다." });
         }
 
-        const order = await Order.findById(orderId).populate("userId", "fullName email phone mobile address").lean();
+        const order = await Order.findById(orderId)
+            .populate("userId", "fullName email phone mobile address")
+            .lean();
 
         if (!order) {
-            return res.status(404).json({ message: "주문 정보를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "주문 정보를 찾을 수 없습니다." });
         }
 
         // 상품 정보
-        const product = await Product.findOne({ koreanName: order.productName }).lean();
+        const product = await Product.findOne({
+            koreanName: order.productName,
+        }).lean();
 
         // 배송지 정보
         let delivery = null;
@@ -108,7 +178,10 @@ router.get(
             delivery = await Address.findById(order.deliveryAddressId).lean();
         } else {
             // 그렇지 않으면 기본 배송지를 찾아서 사용
-            delivery = await Address.findOne({ userId: order.userId._id, isDefault: true }).lean();
+            delivery = await Address.findOne({
+                userId: order.userId._id,
+                isDefault: true,
+            }).lean();
         }
 
         // 가상계좌 정보 (예시)
@@ -117,7 +190,12 @@ router.get(
             status: order.status,
             bank: order.userId.bankName || "KEB하나은행",
             virtualAccount: order.userId.accountNumber || "00000000000000",
-            dueDate: order.createdAt ? new Date(new Date(order.createdAt).getTime() + 3 * 24 * 60 * 60 * 1000) : null,
+            dueDate: order.createdAt
+                ? new Date(
+                      new Date(order.createdAt).getTime() +
+                          3 * 24 * 60 * 60 * 1000
+                  )
+                : null,
         };
 
         res.json({
