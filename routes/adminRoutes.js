@@ -9,6 +9,7 @@ const generateToken = require("../utils/generateToken");
 const Order = require("../models/Order");
 const calculateDiscountedPrice = require("../utils/calculateDiscount");
 const Product = require("../models/Product");
+const Kit = require("../models/Kit");
 // 관리자 계정생성
 router.post(
     "/create",
@@ -112,7 +113,9 @@ router.get(
             const userIds = users.map((u) => u._id);
             if (match.userId) {
                 // 이름 + 이메일 동시 필터링
-                match.userId.$in = match.userId.$in.filter((id) => userIds.some((e) => e.equals(id)));
+                match.userId.$in = match.userId.$in.filter((id) =>
+                    userIds.some((e) => e.equals(id))
+                );
             } else {
                 match.userId = { $in: userIds };
             }
@@ -151,7 +154,16 @@ router.post(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { category, productName, koreanName, volume, consumerPrice, imagePath, detailImage, stock } = req.body;
+        const {
+            category,
+            productName,
+            koreanName,
+            volume,
+            consumerPrice,
+            imagePath,
+            detailImage,
+            stock,
+        } = req.body;
 
         const product = new Product({
             category,
@@ -176,7 +188,14 @@ router.put(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { category, productName, koreanName, volume, consumerPrice, stock } = req.body;
+        const {
+            category,
+            productName,
+            koreanName,
+            volume,
+            consumerPrice,
+            stock,
+        } = req.body;
 
         const product = await Product.findById(req.params.id);
         if (!product) {
@@ -189,7 +208,10 @@ router.put(
         product.koreanName = koreanName || product.koreanName;
         product.volume = volume || product.volume;
         product.consumerPrice = consumerPrice || product.consumerPrice;
-        product.memberPrice = calculateDiscountedPrice(consumerPrice || product.consumerPrice, "일반회원");
+        product.memberPrice = calculateDiscountedPrice(
+            consumerPrice || product.consumerPrice,
+            "일반회원"
+        );
         product.stock = stock !== undefined ? stock : product.stock;
         await product.save();
         res.json({ message: "상품이 수정되었습니다.", product });
@@ -212,6 +234,103 @@ router.delete(
         res.json({ message: "상품이 삭제되었습니다." });
     })
 );
+// 🔹 키트 등록
+router.post(
+    "/kits/create",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const {
+            kitName,
+            products,
+            price,
+            originalPrice,
+            description,
+            imagePath,
+            detailImage,
+        } = req.body;
+
+        const kit = await Kit.create({
+            kitName,
+            products,
+            price,
+            originalPrice,
+            description,
+            imagePath: imagePath || "/img/default_product.png",
+            detailImage: detailImage || "/img/default_detail.jpg",
+        });
+
+        res.status(201).json(kit);
+    })
+);
+
+// 🔹 전체 키트 리스트 조회
+router.get(
+    "/kits",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const kits = await Kit.find().populate("products.productId");
+        res.json(kits);
+    })
+);
+
+// 🔹 키트 수정
+router.put(
+    "/kits/:id",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const {
+            kitName,
+            products,
+            price,
+            originalPrice,
+            description,
+            imagePath,
+            detailImage,
+        } = req.body;
+
+        const updatedData = {
+            kitName,
+            products,
+            price,
+            originalPrice,
+            description,
+            imagePath: imagePath || "/img/default_product.png",
+            detailImage: detailImage || "/img/default_detail.jpg",
+        };
+
+        const kit = await Kit.findByIdAndUpdate(req.params.id, updatedData, {
+            new: true,
+        });
+
+        if (!kit) {
+            return res
+                .status(404)
+                .json({ message: "해당 키트를 찾을 수 없습니다." });
+        }
+
+        res.json(kit);
+    })
+);
+
+// 🔹 키트 삭제
+router.delete(
+    "/kits/:id",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const kit = await Kit.findByIdAndDelete(req.params.id);
+        if (!kit) {
+            return res
+                .status(404)
+                .json({ message: "해당 키트를 찾을 수 없습니다." });
+        }
+        res.json({ message: "키트가 삭제되었습니다." });
+    })
+);
+
 // ✅ 관리자 전용 대시보드
 router.get(
     "/dashboard",
