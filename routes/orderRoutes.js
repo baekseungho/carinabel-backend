@@ -7,41 +7,52 @@ const Purchase = require("../models/Purchase");
 const User = require("../models/User");
 const Product = require("../models/Product");
 const Address = require("../models/Address"); // 기본 배송지 모델
+
 // 주문 생성 API
 router.post(
     "/create",
     asyncHandler(async (req, res) => {
-        const {
-            userId,
-            amount,
-            quantity,
-            status,
-            deliveryDate,
-            productName,
-            imagePath,
-        } = req.body;
+        const { userId, amount, quantity, status, deliveryDate, productName, imagePath } = req.body;
+
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
+
         console.log("🧾 주문 생성 요청:", req.body);
-        // Order에 저장
+
+        // 1️⃣ 상품 찾기 (이름으로 찾음, 필요하면 productId도 추가해도 됨)
+        const product = await Product.findOne({ koreanName: productName });
+        if (!product) {
+            return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
+        }
+
+        // 2️⃣ 재고 확인
+        if (product.stock < quantity) {
+            return res.status(400).json({
+                message: `재고가 부족합니다. 현재 남은 재고: ${product.stock}`,
+            });
+        }
+
+        // 3️⃣ 주문 생성
         const newOrder = await Order.create({
             userId,
             productName,
-            imagePath, // ✅ 이미지 경로 저장
+            imagePath,
             amount,
             quantity,
             status: status || "",
             deliveryDate: deliveryDate || null,
         });
 
-        // Purchase에도 통계용 데이터 기록
+        // 4️⃣ Purchase에도 통계용 데이터 기록
         await Purchase.create({
             userId,
             amount,
         });
+
+        // 5️⃣ 재고 차감
+        product.stock -= quantity;
+        await product.save();
 
         res.status(201).json(newOrder);
     })
@@ -53,9 +64,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const { userId, page = 1, size = 5, status = "all" } = req.query;
 
-        const match = userId
-            ? { userId: new mongoose.Types.ObjectId(userId) }
-            : {};
+        const match = userId ? { userId: new mongoose.Types.ObjectId(userId) } : {};
         if (status !== "all") {
             match.status = status;
         }
@@ -79,14 +88,10 @@ router.get(
         const { referrerId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(referrerId)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 추천인 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 추천인 ID입니다." });
         }
 
-        const referredUsers = await User.find({ referrerId }).select(
-            "_id fullName email"
-        );
+        const referredUsers = await User.find({ referrerId }).select("_id fullName email");
         const referredIds = referredUsers.map((u) => u._id);
 
         if (!referredIds.length) return res.json([]);
@@ -114,14 +119,10 @@ router.get(
 
         // 🔍 referrerId 유효성 검사
         if (!referrerId || !mongoose.Types.ObjectId.isValid(referrerId)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 추천인 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 추천인 ID입니다." });
         }
 
-        const referredUsers = await User.find({ referrerId }).select(
-            "_id fullName email"
-        );
+        const referredUsers = await User.find({ referrerId }).select("_id fullName email");
         const referredIds = referredUsers.map((u) => u._id);
 
         if (!referredIds.length) return res.json({ orders: [], total: 0 });
@@ -150,19 +151,13 @@ router.get(
         const { orderId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(orderId)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 주문 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 주문 ID입니다." });
         }
 
-        const order = await Order.findById(orderId)
-            .populate("userId", "fullName email phone mobile address")
-            .lean();
+        const order = await Order.findById(orderId).populate("userId", "fullName email phone mobile address").lean();
 
         if (!order) {
-            return res
-                .status(404)
-                .json({ message: "주문 정보를 찾을 수 없습니다." });
+            return res.status(404).json({ message: "주문 정보를 찾을 수 없습니다." });
         }
 
         // 상품 정보
@@ -190,12 +185,7 @@ router.get(
             status: order.status,
             bank: order.userId.bankName || "KEB하나은행",
             virtualAccount: order.userId.accountNumber || "00000000000000",
-            dueDate: order.createdAt
-                ? new Date(
-                      new Date(order.createdAt).getTime() +
-                          3 * 24 * 60 * 60 * 1000
-                  )
-                : null,
+            dueDate: order.createdAt ? new Date(new Date(order.createdAt).getTime() + 3 * 24 * 60 * 60 * 1000) : null,
         };
 
         res.json({

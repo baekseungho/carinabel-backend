@@ -35,6 +35,11 @@ const productSchema = new mongoose.Schema({
         type: String,
         default: "/img/default_detail.jpg",
     },
+    stock: {
+        type: Number,
+        required: true,
+        default: 0,
+    },
     createdAt: {
         type: Date,
         default: Date.now,
