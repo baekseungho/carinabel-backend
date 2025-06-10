@@ -7,6 +7,7 @@ const Purchase = require("../models/Purchase");
 const User = require("../models/User");
 const Product = require("../models/Product");
 const Address = require("../models/Address"); // 기본 배송지 모델
+const Kit = require("../models/Kit"); // 키트 모델도 불러오기
 
 // 주문 생성 API
 router.post(
@@ -20,17 +21,39 @@ router.post(
 
         console.log("🧾 주문 생성 요청:", req.body);
 
-        // 1️⃣ 상품 찾기 (이름으로 찾음, 필요하면 productId도 추가해도 됨)
-        const product = await Product.findOne({ koreanName: productName });
-        if (!product) {
-            return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
-        }
+        // 1️⃣ 상품 찾기 (Product → 없으면 Kit)
+        let product = await Product.findOne({ koreanName: productName });
 
-        // 2️⃣ 재고 확인
-        if (product.stock < quantity) {
-            return res.status(400).json({
-                message: `재고가 부족합니다. 현재 남은 재고: ${product.stock}`,
-            });
+        if (product) {
+            // 일반 상품 주문 처리
+            if (product.stock < quantity) {
+                return res.status(400).json({ message: `재고가 부족합니다. 현재 남은 재고: ${product.stock}` });
+            }
+
+            product.stock -= quantity;
+            await product.save();
+        } else {
+            // 키트 상품 주문 처리
+            const kit = await Kit.findOne({ kitName: productName }).populate("products.productId");
+
+            if (!kit) {
+                return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
+            }
+
+            // 모든 구성품 재고 확인
+            const insufficient = kit.products.find((item) => item.productId.stock < item.quantity * quantity);
+            if (insufficient) {
+                return res.status(400).json({
+                    message: `구성품 ${insufficient.productId.koreanName}의 재고가 부족합니다. 현재 재고: ${insufficient.productId.stock}`,
+                });
+            }
+
+            // 구성품 재고 차감
+            for (const item of kit.products) {
+                const product = item.productId;
+                product.stock -= item.quantity * quantity;
+                await product.save();
+            }
         }
 
         // 3️⃣ 주문 생성
@@ -40,19 +63,15 @@ router.post(
             imagePath,
             amount,
             quantity,
-            status: status || "",
+            status: status || "결제완료",
             deliveryDate: deliveryDate || null,
         });
 
-        // 4️⃣ Purchase에도 통계용 데이터 기록
+        // 4️⃣ 통계용 기록
         await Purchase.create({
             userId,
             amount,
         });
-
-        // 5️⃣ 재고 차감
-        product.stock -= quantity;
-        await product.save();
 
         res.status(201).json(newOrder);
     })
@@ -154,25 +173,32 @@ router.get(
             return res.status(400).json({ message: "유효하지 않은 주문 ID입니다." });
         }
 
-        const order = await Order.findById(orderId).populate("userId", "fullName email phone mobile address").lean();
+        const order = await Order.findById(orderId)
+            .populate("userId", "fullName email phone mobile address bankName accountNumber")
+            .lean();
 
         if (!order) {
             return res.status(404).json({ message: "주문 정보를 찾을 수 없습니다." });
         }
 
-        // 상품 정보
-        const product = await Product.findOne({
-            koreanName: order.productName,
-        }).lean();
+        // 상품 정보 가져오기: 일반 상품 → 키트 순서로 시도
+        let productImagePath = "/img/default.jpg";
+
+        const product = await Product.findOne({ koreanName: order.productName }).lean();
+        if (product) {
+            productImagePath = product.imagePath;
+        } else {
+            const kit = await Kit.findOne({ kitName: order.productName }).lean();
+            if (kit) {
+                productImagePath = kit.imagePath;
+            }
+        }
 
         // 배송지 정보
         let delivery = null;
-
         if (order.deliveryAddressId) {
-            // 주문에 지정된 배송지 ID가 있으면 해당 주소를 사용
             delivery = await Address.findById(order.deliveryAddressId).lean();
         } else {
-            // 그렇지 않으면 기본 배송지를 찾아서 사용
             delivery = await Address.findOne({
                 userId: order.userId._id,
                 isDefault: true,
@@ -193,7 +219,7 @@ router.get(
             createdAt: order.createdAt,
             product: {
                 productName: order.productName,
-                imagePath: product?.imagePath || "/img/default.jpg",
+                imagePath: productImagePath,
                 amount: order.amount,
                 quantity: order.quantity,
             },
@@ -204,4 +230,5 @@ router.get(
         });
     })
 );
+
 module.exports = router;

@@ -10,6 +10,7 @@ const orderRoutes = require("./routes/orderRoutes");
 const addressRoutes = require("./routes/addressRoutes");
 const qnaRoutes = require("./routes/qnaRoutes");
 const adminRoutes = require("./routes/adminRoutes"); // 추가
+const kitRoutes = require("./routes/kitRoutes");
 // 환경변수 설정
 dotenv.config();
 
@@ -21,14 +22,14 @@ const app = express();
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(
-  cors({
-    origin: "http://localhost:5173",
-    credentials: true,
-  })
+    cors({
+        origin: "http://localhost:5173",
+        credentials: true,
+    })
 );
 // 기본 라우터
 app.get("/", (req, res) => {
-  res.send("API is running...");
+    res.send("API is running...");
 });
 
 // 사용자 라우터
@@ -51,6 +52,9 @@ app.use("/api/qna", qnaRoutes);
 
 // 관리자 라우터
 app.use("/api/admin", adminRoutes);
+
+// 관리자 라우터
+app.use("/api/kits", kitRoutes);
 // 서버 시작
 const PORT = process.env.PORT || 5000;
 
