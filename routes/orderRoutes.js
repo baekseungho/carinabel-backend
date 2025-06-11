@@ -91,7 +91,7 @@ router.get(
         const skip = (Number(page) - 1) * Number(size);
         const total = await Order.countDocuments(match);
         const orders = await Order.find(match)
-            .populate("userId", "fullName email referrerId")
+            .populate("userId", "fullName memberId referrerId")
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(size));
@@ -110,7 +110,7 @@ router.get(
             return res.status(400).json({ message: "유효하지 않은 추천인 ID입니다." });
         }
 
-        const referredUsers = await User.find({ referrerId }).select("_id fullName email");
+        const referredUsers = await User.find({ referrerId }).select("_id fullName memberId");
         const referredIds = referredUsers.map((u) => u._id);
 
         if (!referredIds.length) return res.json([]);
@@ -118,10 +118,10 @@ router.get(
         const orders = await Order.find({ userId: { $in: referredIds } })
             .populate({
                 path: "userId",
-                select: "fullName email referrerId",
+                select: "fullName memberId referrerId",
                 populate: {
                     path: "referrerId",
-                    select: "fullName email",
+                    select: "fullName memberId",
                 },
             })
             .sort({ createdAt: -1 });
@@ -141,7 +141,7 @@ router.get(
             return res.status(400).json({ message: "유효하지 않은 추천인 ID입니다." });
         }
 
-        const referredUsers = await User.find({ referrerId }).select("_id fullName email");
+        const referredUsers = await User.find({ referrerId }).select("_id fullName memberId");
         const referredIds = referredUsers.map((u) => u._id);
 
         if (!referredIds.length) return res.json({ orders: [], total: 0 });
@@ -152,8 +152,8 @@ router.get(
         const orders = await Order.find(match)
             .populate({
                 path: "userId",
-                select: "fullName email referrerId",
-                populate: { path: "referrerId", select: "fullName email" },
+                select: "fullName memberId referrerId",
+                populate: { path: "referrerId", select: "fullName memberId" },
             })
             .sort({ createdAt: -1 })
             .skip(skip)
@@ -174,7 +174,7 @@ router.get(
         }
 
         const order = await Order.findById(orderId)
-            .populate("userId", "fullName email phone mobile address bankName accountNumber")
+            .populate("userId", "fullName memberId phone mobile address bankName accountNumber")
             .lean();
 
         if (!order) {

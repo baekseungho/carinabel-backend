@@ -14,9 +14,9 @@ const Kit = require("../models/Kit");
 router.post(
     "/create",
     asyncHandler(async (req, res) => {
-        const { fullName, email, password } = req.body;
+        const { fullName, memberId, password } = req.body;
 
-        const existingAdmin = await User.findOne({ email });
+        const existingAdmin = await User.findOne({ memberId });
         if (existingAdmin) {
             res.status(400);
             throw new Error("이미 존재하는 관리자입니다.");
@@ -24,7 +24,7 @@ router.post(
 
         const adminUser = await User.create({
             fullName,
-            email,
+            memberId,
             password,
             role: "admin",
             agreedToTerms: true,
@@ -35,7 +35,7 @@ router.post(
         res.status(201).json({
             message: "관리자 계정이 생성되었습니다.",
             _id: adminUser._id,
-            email: adminUser.email,
+            memberId: adminUser.memberId,
         });
     })
 );
@@ -46,13 +46,13 @@ router.post(
     asyncHandler(async (req, res) => {
         const { adminId, password } = req.body;
 
-        const user = await User.findOne({ email: adminId, role: "admin" });
+        const user = await User.findOne({ memberId: adminId, role: "admin" });
 
         if (user && (await user.matchPassword(password))) {
             res.json({
                 _id: user._id,
                 fullName: user.fullName,
-                email: user.email,
+                memberId: user.memberId,
                 role: user.role,
                 token: generateToken(user._id, user.role),
             });
@@ -68,11 +68,11 @@ router.get(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { name, email, level, page = 1, size = 10 } = req.query;
+        const { name, memberId, level, page = 1, size = 10 } = req.query;
 
         const query = {};
         if (name) query.fullName = new RegExp(name, "i");
-        if (email) query.email = new RegExp(email, "i");
+        if (memberId) query.memberId = new RegExp(memberId, "i");
         if (level) query.membershipLevel = level;
 
         const total = await User.countDocuments(query);
@@ -92,7 +92,7 @@ router.get(
 router.get(
     "/orders",
     asyncHandler(async (req, res) => {
-        const { page = 1, size = 10, email, productName, name } = req.query;
+        const { page = 1, size = 10, memberId, productName, name } = req.query;
 
         const match = {};
 
@@ -106,16 +106,14 @@ router.get(
         }
 
         // 🔍 이메일 검색 (populate 전이라서 조건 불가 — 나중에 필터하거나 위와 같이 처리)
-        if (email) {
+        if (memberId) {
             const users = await User.find({
-                email: new RegExp(email, "i"),
+                memberId: new RegExp(memberId, "i"),
             }).select("_id");
             const userIds = users.map((u) => u._id);
             if (match.userId) {
                 // 이름 + 이메일 동시 필터링
-                match.userId.$in = match.userId.$in.filter((id) =>
-                    userIds.some((e) => e.equals(id))
-                );
+                match.userId.$in = match.userId.$in.filter((id) => userIds.some((e) => e.equals(id)));
             } else {
                 match.userId = { $in: userIds };
             }
@@ -128,7 +126,7 @@ router.get(
         const skip = (Number(page) - 1) * Number(size);
         const total = await Order.countDocuments(match);
         const orders = await Order.find(match)
-            .populate("userId", "fullName email")
+            .populate("userId", "fullName memberId")
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(Number(size));
@@ -154,16 +152,7 @@ router.post(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            category,
-            productName,
-            koreanName,
-            volume,
-            consumerPrice,
-            imagePath,
-            detailImage,
-            stock,
-        } = req.body;
+        const { category, productName, koreanName, volume, consumerPrice, imagePath, detailImage, stock } = req.body;
 
         const product = new Product({
             category,
@@ -188,14 +177,7 @@ router.put(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            category,
-            productName,
-            koreanName,
-            volume,
-            consumerPrice,
-            stock,
-        } = req.body;
+        const { category, productName, koreanName, volume, consumerPrice, stock } = req.body;
 
         const product = await Product.findById(req.params.id);
         if (!product) {
@@ -208,10 +190,7 @@ router.put(
         product.koreanName = koreanName || product.koreanName;
         product.volume = volume || product.volume;
         product.consumerPrice = consumerPrice || product.consumerPrice;
-        product.memberPrice = calculateDiscountedPrice(
-            consumerPrice || product.consumerPrice,
-            "일반회원"
-        );
+        product.memberPrice = calculateDiscountedPrice(consumerPrice || product.consumerPrice, "일반회원");
         product.stock = stock !== undefined ? stock : product.stock;
         await product.save();
         res.json({ message: "상품이 수정되었습니다.", product });
@@ -240,15 +219,7 @@ router.post(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            kitName,
-            products,
-            price,
-            originalPrice,
-            description,
-            imagePath,
-            detailImage,
-        } = req.body;
+        const { kitName, products, price, originalPrice, description, imagePath, detailImage } = req.body;
 
         const kit = await Kit.create({
             kitName,
@@ -281,15 +252,7 @@ router.put(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            kitName,
-            products,
-            price,
-            originalPrice,
-            description,
-            imagePath,
-            detailImage,
-        } = req.body;
+        const { kitName, products, price, originalPrice, description, imagePath, detailImage } = req.body;
 
         const updatedData = {
             kitName,
@@ -306,9 +269,7 @@ router.put(
         });
 
         if (!kit) {
-            return res
-                .status(404)
-                .json({ message: "해당 키트를 찾을 수 없습니다." });
+            return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
         }
 
         res.json(kit);
@@ -323,9 +284,7 @@ router.delete(
     asyncHandler(async (req, res) => {
         const kit = await Kit.findByIdAndDelete(req.params.id);
         if (!kit) {
-            return res
-                .status(404)
-                .json({ message: "해당 키트를 찾을 수 없습니다." });
+            return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
         }
         res.json({ message: "키트가 삭제되었습니다." });
     })

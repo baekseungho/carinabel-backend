@@ -30,7 +30,7 @@ const mongoose = require("mongoose");
 //         const total = await QnA.countDocuments(query);
 
 //         const qnas = await QnA.find(query)
-//             .populate("userId", "fullName email")
+//             .populate("userId", "fullName memberId")
 //             .sort({ createdAt: -1 })
 //             .skip((pageInt - 1) * sizeInt)
 //             .limit(sizeInt);
@@ -96,7 +96,7 @@ router.get(
         const total = await QnA.countDocuments(query);
 
         const qnas = await QnA.find(query)
-            .populate("userId", "fullName email")
+            .populate("userId", "fullName memberId")
             .sort({ createdAt: -1 })
             .skip((pageInt - 1) * sizeInt)
             .limit(sizeInt);
@@ -161,7 +161,7 @@ router.get(
     "/:id",
     asyncHandler(async (req, res) => {
         const qna = await QnA.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } }, { new: true })
-            .populate("userId", "fullName email")
+            .populate("userId", "fullName memberId")
             .populate("answer.adminId", "fullName");
         if (!qna) {
             return res.status(404).json({ message: "게시글을 찾을 수 없습니다." });

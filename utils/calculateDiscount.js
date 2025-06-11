@@ -1,7 +1,7 @@
 const calculateDiscountedPrice = (consumerPrice, membershipLevel) => {
     const discounts = {
         일반회원: 0,
-        IPC회원: 0.1,
+        회원: 0.1,
         대리점: 0.3,
         총판: 0.5,
     };
