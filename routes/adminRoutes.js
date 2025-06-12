@@ -68,21 +68,48 @@ router.get(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { name, memberId, level, page = 1, size = 10 } = req.query;
+        const { name, memberId, level, page = 1, size = 10, fromDate, toDate } = req.query;
 
         const query = {};
         if (name) query.fullName = new RegExp(name, "i");
         if (memberId) query.memberId = new RegExp(memberId, "i");
         if (level) query.membershipLevel = level;
 
+        // ✅ 가입일 필터 추가
+        if (fromDate || toDate) {
+            query.createdAt = {};
+            if (fromDate) query.createdAt.$gte = new Date(fromDate);
+            if (toDate) {
+                const endDate = new Date(toDate);
+                endDate.setDate(endDate.getDate() + 1); // toDate 포함되도록 하루 더함
+                query.createdAt.$lt = endDate;
+            }
+        }
+
         const total = await User.countDocuments(query);
+
         const users = await User.find(query)
             .sort({ createdAt: -1 })
             .skip((page - 1) * size)
-            .limit(Number(size));
+            .limit(Number(size))
+            .populate("referrerId", "fullName memberId") // ✅ 추천인 정보 포함
+            .lean(); // plain object로 반환
+
+        const result = users.map((user) => ({
+            _id: user._id,
+            fullName: user.fullName,
+            memberId: user.memberId,
+            phone: user.phone,
+            birthday: user.birthday,
+            membershipLevel: user.membershipLevel,
+            createdAt: user.createdAt,
+            address: user.address || "-",
+            referrerName: user.referrerId?.fullName || "-",
+            referrerMemberId: user.referrerId?.memberId || "-",
+        }));
 
         res.json({
-            users,
+            users: result,
             total,
         });
     })
@@ -92,11 +119,21 @@ router.get(
 router.get(
     "/orders",
     asyncHandler(async (req, res) => {
-        const { page = 1, size = 10, memberId, productName, name } = req.query;
+        const { page = 1, size = 10, orderNumber, productName, name, fromDate, toDate } = req.query;
 
         const match = {};
 
-        // 🔍 사용자 이름으로 검색
+        // 🔍 주문번호
+        if (orderNumber) {
+            match.orderNumber = new RegExp(orderNumber, "i");
+        }
+
+        // 🔍 상품명
+        if (productName) {
+            match.productName = new RegExp(productName, "i");
+        }
+
+        // 🔍 사용자 이름
         if (name) {
             const users = await User.find({
                 fullName: new RegExp(name, "i"),
@@ -105,22 +142,15 @@ router.get(
             match.userId = { $in: userIds };
         }
 
-        // 🔍 이메일 검색 (populate 전이라서 조건 불가 — 나중에 필터하거나 위와 같이 처리)
-        if (memberId) {
-            const users = await User.find({
-                memberId: new RegExp(memberId, "i"),
-            }).select("_id");
-            const userIds = users.map((u) => u._id);
-            if (match.userId) {
-                // 이름 + 이메일 동시 필터링
-                match.userId.$in = match.userId.$in.filter((id) => userIds.some((e) => e.equals(id)));
-            } else {
-                match.userId = { $in: userIds };
+        // 🔍 주문일시 (createdAt)
+        if (fromDate || toDate) {
+            match.createdAt = {};
+            if (fromDate) match.createdAt.$gte = new Date(fromDate);
+            if (toDate) {
+                const to = new Date(toDate);
+                to.setDate(to.getDate() + 1); // 포함되도록 하루 더함
+                match.createdAt.$lt = to;
             }
-        }
-
-        if (productName) {
-            match.productName = new RegExp(productName, "i");
         }
 
         const skip = (Number(page) - 1) * Number(size);
@@ -287,6 +317,74 @@ router.delete(
             return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
         }
         res.json({ message: "키트가 삭제되었습니다." });
+    })
+);
+
+// GET /api/admin/referral-earnings 수당 관리 조회
+router.get(
+    "/referral-earnings",
+    asyncHandler(async (req, res) => {
+        try {
+            const users = await User.find()
+                .select(
+                    "fullName memberId totalReferralEarnings paidReferralEarnings unpaidReferralEarnings accountNumber bankName socialSecurityNumber"
+                )
+                .lean();
+
+            res.status(200).json(users);
+        } catch (error) {
+            console.error("❌ 수당 목록 조회 실패:", error);
+            res.status(500).json({ message: "수당 목록 조회 중 오류가 발생했습니다." });
+        }
+    })
+);
+
+// 수당 상세 정보 조회 API
+router.get(
+    "/referral-details/:userId",
+    asyncHandler(async (req, res) => {
+        const { userId } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+        }
+
+        const referralRecords = await Referral.find({ referrerId: userId })
+            .populate("referredUserId", "fullName memberId")
+            .sort({ date: -1 });
+
+        res.json(referralRecords);
+    })
+);
+
+// 수당 지급 처리 API
+router.post(
+    "/referral-pay",
+    asyncHandler(async (req, res) => {
+        const { userId, amount } = req.body;
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+        }
+
+        if (user.unpaidReferralEarnings < amount) {
+            return res.status(400).json({ message: "미지급 수당이 부족합니다." });
+        }
+
+        user.unpaidReferralEarnings -= amount;
+        user.paidReferralEarnings += amount;
+        await user.save();
+
+        res.json({
+            message: "수당 지급 완료",
+            paidReferralEarnings: user.paidReferralEarnings,
+            unpaidReferralEarnings: user.unpaidReferralEarnings,
+        });
     })
 );
 

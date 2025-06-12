@@ -8,7 +8,7 @@ const User = require("../models/User");
 const Product = require("../models/Product");
 const Address = require("../models/Address"); // 기본 배송지 모델
 const Kit = require("../models/Kit"); // 키트 모델도 불러오기
-
+const generateOrderNumber = require("../utils/generateOrderNumber");
 // 주문 생성 API
 router.post(
     "/create",
@@ -56,6 +56,7 @@ router.post(
             }
         }
 
+        const orderNumber = await generateOrderNumber();
         // 3️⃣ 주문 생성
         const newOrder = await Order.create({
             userId,
@@ -65,6 +66,7 @@ router.post(
             quantity,
             status: status || "결제완료",
             deliveryDate: deliveryDate || null,
+            orderNumber, // 추가된 필드
         });
 
         // 4️⃣ 통계용 기록

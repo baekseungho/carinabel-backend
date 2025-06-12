@@ -35,8 +35,10 @@ async function distributeReferralEarnings(buyer, purchaseAmount, isFirstPurchase
         firstPurchase: isFirstPurchase, // 첫 구매 여부
     });
 
-    // 추천인 누적 수당 반영
+    // 추천인 누적 수당 반영, 미지급수당 반영
+
     referrer.totalReferralEarnings += commission;
+    referrer.unpaidReferralEarnings += commission;
     await referrer.save();
 
     console.log(`✅ 추천인 수당 지급 완료: ${commission}원 (${referrer.memberId})`);
