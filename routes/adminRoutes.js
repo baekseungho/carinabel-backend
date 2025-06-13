@@ -8,6 +8,7 @@ const { adminOnly } = require("../middleware/adminMiddleware");
 const generateToken = require("../utils/generateToken");
 const Order = require("../models/Order");
 const calculateDiscountedPrice = require("../utils/calculateDiscount");
+const Referral = require("../models/Referral");
 const Product = require("../models/Product");
 const Kit = require("../models/Kit");
 // 관리자 계정생성
@@ -323,19 +324,32 @@ router.delete(
 // GET /api/admin/referral-earnings 수당 관리 조회
 router.get(
     "/referral-earnings",
+    protect,
+    adminOnly, // ✅ 관리자 권한만 허용
     asyncHandler(async (req, res) => {
-        try {
-            const users = await User.find()
+        const { name, memberId, bankName, page = 1, size = 10 } = req.query;
+
+        const filter = {};
+        if (name) filter.fullName = { $regex: name, $options: "i" };
+        if (memberId) filter.memberId = { $regex: memberId, $options: "i" };
+        if (bankName) filter.bankName = { $regex: bankName, $options: "i" };
+
+        const limit = parseInt(size);
+        const skip = (parseInt(page) - 1) * limit;
+
+        const [total, users] = await Promise.all([
+            User.countDocuments(filter),
+            User.find(filter)
                 .select(
                     "fullName memberId totalReferralEarnings paidReferralEarnings unpaidReferralEarnings accountNumber bankName socialSecurityNumber"
                 )
-                .lean();
+                .sort({ unpaidReferralEarnings: -1 }) // 🔽 미지급 수당이 높은 순으로 정렬
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+        ]);
 
-            res.status(200).json(users);
-        } catch (error) {
-            console.error("❌ 수당 목록 조회 실패:", error);
-            res.status(500).json({ message: "수당 목록 조회 중 오류가 발생했습니다." });
-        }
+        res.status(200).json({ total, users });
     })
 );
 
@@ -345,7 +359,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const { userId } = req.params;
 
-        if (!mongoose.Types.ObjectId.isValid(userId)) {
+        if (!String(userId).match(/^[0-9a-fA-F]{24}$/)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
@@ -356,14 +370,14 @@ router.get(
         res.json(referralRecords);
     })
 );
-
 // 수당 지급 처리 API
 router.post(
     "/referral-pay",
     asyncHandler(async (req, res) => {
         const { userId, amount } = req.body;
 
-        if (!mongoose.Types.ObjectId.isValid(userId)) {
+        // ObjectId 유효성 검사 (정규식 사용)
+        if (!String(userId).match(/^[0-9a-fA-F]{24}$/)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 

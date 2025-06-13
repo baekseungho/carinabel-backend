@@ -192,15 +192,14 @@ router.put(
             return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
         }
 
-        // 💡 여기서 미리 첫 구매 여부 판단
+        // 🟡 첫 구매 여부 판단
         const isFirstPurchase = !user.firstPurchaseDate;
 
-        // ✅ 첫 구매일 먼저 설정 (로컬 객체에만 적용 → DB 저장은 나중)
+        // 🟢 첫 구매 인정 조건: 55만원 이상일 때만
         if (isFirstPurchase && additionalAmount >= 550000) {
             user.firstPurchaseDate = new Date();
-            console.log("✅ 첫 구매일 설정 완료:", user.firstPurchaseDate);
+            console.log("✅ 첫 구매일 설정:", user.firstPurchaseDate);
         }
-
         // 등급 업데이트
         updateMembershipLevel(user, additionalAmount);
 
@@ -211,9 +210,13 @@ router.put(
         //     amount: additionalAmount,
         // });
 
-        // ✅ 추천인 수당 지급
-        if (user.referrerId && additionalAmount >= 550000) {
-            await distributeReferralEarnings(user, additionalAmount, isFirstPurchase);
+        // 🔵 추천인 수당 지급 로직
+        if (user.referrerId) {
+            const shouldPayReferral = isFirstPurchase ? additionalAmount >= 550000 : true;
+
+            if (shouldPayReferral) {
+                await distributeReferralEarnings(user, additionalAmount, isFirstPurchase);
+            }
         }
 
         await user.save();
