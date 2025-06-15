@@ -25,6 +25,7 @@ const orderSchema = new mongoose.Schema({
     required: true,
   },
   status: {
+    type: String,
     enum: [
       "입금대기", // PENDING_PAYMENT
       "주문완료", // ORDERED
