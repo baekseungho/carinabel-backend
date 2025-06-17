@@ -70,15 +70,7 @@ router.get(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            name,
-            memberId,
-            level,
-            page = 1,
-            size = 10,
-            fromDate,
-            toDate,
-        } = req.query;
+        const { name, memberId, level, page = 1, size = 10, fromDate, toDate } = req.query;
 
         const query = {};
         if (name) query.fullName = new RegExp(name, "i");
@@ -129,15 +121,7 @@ router.get(
 router.get(
     "/orders",
     asyncHandler(async (req, res) => {
-        const {
-            page = 1,
-            size = 10,
-            orderNumber,
-            productName,
-            name,
-            fromDate,
-            toDate,
-        } = req.query;
+        const { page = 1, size = 10, orderNumber, productName, name, fromDate, toDate } = req.query;
 
         const match = {};
 
@@ -200,16 +184,7 @@ router.post(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            category,
-            productName,
-            koreanName,
-            volume,
-            consumerPrice,
-            imagePath,
-            detailImage,
-            stock,
-        } = req.body;
+        const { category, productName, koreanName, volume, consumerPrice, imagePath, detailImage, stock } = req.body;
 
         const product = new Product({
             category,
@@ -234,19 +209,11 @@ router.put(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            category,
-            productName,
-            koreanName,
-            volume,
-            consumerPrice,
-            stock,
-        } = req.body;
+        const { category, productName, koreanName, volume, consumerPrice, stock, imagePath, detailImage } = req.body;
 
         const product = await Product.findById(req.params.id);
         if (!product) {
-            res.status(404).json({ message: "상품을 찾을 수 없습니다." });
-            return;
+            return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
         }
 
         product.category = category || product.category;
@@ -254,11 +221,11 @@ router.put(
         product.koreanName = koreanName || product.koreanName;
         product.volume = volume || product.volume;
         product.consumerPrice = consumerPrice || product.consumerPrice;
-        product.memberPrice = calculateDiscountedPrice(
-            consumerPrice || product.consumerPrice,
-            "일반회원"
-        );
+        product.memberPrice = calculateDiscountedPrice(consumerPrice || product.consumerPrice, "일반회원");
         product.stock = stock !== undefined ? stock : product.stock;
+        product.imagePath = imagePath || product.imagePath;
+        product.detailImage = detailImage || product.detailImage;
+
         await product.save();
         res.json({ message: "상품이 수정되었습니다.", product });
     })
@@ -286,15 +253,7 @@ router.post(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            kitName,
-            products,
-            price,
-            originalPrice,
-            description,
-            imagePath,
-            detailImage,
-        } = req.body;
+        const { kitName, products, price, originalPrice, description, imagePath, detailImage } = req.body;
 
         const kit = await Kit.create({
             kitName,
@@ -327,15 +286,7 @@ router.put(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const {
-            kitName,
-            products,
-            price,
-            originalPrice,
-            description,
-            imagePath,
-            detailImage,
-        } = req.body;
+        const { kitName, products, price, originalPrice, description, imagePath, detailImage } = req.body;
 
         const updatedData = {
             kitName,
@@ -352,9 +303,7 @@ router.put(
         });
 
         if (!kit) {
-            return res
-                .status(404)
-                .json({ message: "해당 키트를 찾을 수 없습니다." });
+            return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
         }
 
         res.json(kit);
@@ -369,9 +318,7 @@ router.delete(
     asyncHandler(async (req, res) => {
         const kit = await Kit.findByIdAndDelete(req.params.id);
         if (!kit) {
-            return res
-                .status(404)
-                .json({ message: "해당 키트를 찾을 수 없습니다." });
+            return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
         }
         res.json({ message: "키트가 삭제되었습니다." });
     })
@@ -416,9 +363,7 @@ router.get(
         const { userId } = req.params;
 
         if (!String(userId).match(/^[0-9a-fA-F]{24}$/)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const referralRecords = await Referral.find({ referrerId: userId })
@@ -436,22 +381,16 @@ router.post(
 
         // ObjectId 유효성 검사 (정규식 사용)
         if (!String(userId).match(/^[0-9a-fA-F]{24}$/)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            return res
-                .status(404)
-                .json({ message: "사용자를 찾을 수 없습니다." });
+            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         if (user.unpaidReferralEarnings < amount) {
-            return res
-                .status(400)
-                .json({ message: "미지급 수당이 부족합니다." });
+            return res.status(400).json({ message: "미지급 수당이 부족합니다." });
         }
 
         user.unpaidReferralEarnings -= amount;
@@ -486,9 +425,7 @@ router.get(
             query.userId = { $in: users.map((u) => u._id) };
         }
 
-        const orders = await Order.find(query)
-            .populate("userId", "fullName")
-            .sort({ createdAt: -1 });
+        const orders = await Order.find(query).populate("userId", "fullName").sort({ createdAt: -1 });
 
         res.status(200).json(orders);
     })
@@ -504,16 +441,12 @@ router.put(
         const { status } = req.body;
 
         if (!mongoose.Types.ObjectId.isValid(orderId)) {
-            return res
-                .status(400)
-                .json({ message: "유효하지 않은 주문 ID입니다." });
+            return res.status(400).json({ message: "유효하지 않은 주문 ID입니다." });
         }
 
         const order = await Order.findById(orderId);
         if (!order) {
-            return res
-                .status(404)
-                .json({ message: "주문을 찾을 수 없습니다." });
+            return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
         }
 
         order.status = status;
