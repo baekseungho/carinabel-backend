@@ -17,6 +17,7 @@ router.post(
     asyncHandler(async (req, res) => {
         const {
             fullName,
+            email, // ✅ 추가
             phone,
             birthday,
             password,
@@ -47,12 +48,17 @@ router.post(
                 throw new Error("추천인을 찾을 수 없습니다.");
             }
         }
-
+        const emailExists = await User.findOne({ email });
+        if (emailExists) {
+            res.status(400);
+            throw new Error("이미 사용 중인 이메일입니다.");
+        }
         // ✅ 자동 회원번호 생성
         const memberId = await generateMemberId();
 
         const user = await User.create({
             fullName,
+            email,
             memberId,
             phone,
             birthday,
@@ -64,7 +70,6 @@ router.post(
             address: address || "",
             referrerId: referrer ? referrer._id : null,
         });
-
         const Address = require("../models/Address");
         await Address.create({
             userId: user._id,
@@ -78,6 +83,7 @@ router.post(
         res.status(201).json({
             _id: user._id,
             fullName: user.fullName,
+            email: user.email, // ✅ 추가
             memberId: user.memberId,
             phone: user.phone,
             birthday: user.birthday,
@@ -112,6 +118,7 @@ router.post(
                 _id: user._id,
                 userId: user.userId,
                 fullName: user.fullName,
+                email: user.email,
                 memberId: user.memberId,
                 phone: user.phone,
                 birthday: user.birthday,
@@ -122,7 +129,7 @@ router.post(
             });
         } else {
             res.status(401);
-            throw new Error("이메일, 아이디 또는 비밀번호가 일치하지 않습니다.");
+            throw new Error("아이디 또는 비밀번호가 일치하지 않습니다.");
         }
     })
 );

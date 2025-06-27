@@ -11,6 +11,7 @@ const addressRoutes = require("./routes/addressRoutes");
 const qnaRoutes = require("./routes/qnaRoutes");
 const adminRoutes = require("./routes/adminRoutes"); // 추가
 const kitRoutes = require("./routes/kitRoutes");
+const payRoutes = require("./routes/payRoutes");
 // 환경변수 설정
 dotenv.config();
 
@@ -55,7 +56,11 @@ app.use("/api/admin", adminRoutes);
 
 // 관리자 라우터
 app.use("/api/kits", kitRoutes);
+
+//PG
+app.use("/api/payment", payRoutes);
 // 서버 시작
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
