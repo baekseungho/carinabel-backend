@@ -7,7 +7,11 @@ const User = require("../models/User");
  * @param {Number} purchaseAmount - 결제 금액 (단일 결제 금액)
  * @param {Boolean} isFirstPurchase - 해당 유저의 첫 구매 여부
  */
-async function distributeReferralEarnings(buyer, purchaseAmount, isFirstPurchase) {
+async function distributeReferralEarnings(
+    buyer,
+    purchaseAmount,
+    isFirstPurchase
+) {
     // 추천인이 없는 경우 수당 지급 불가
     if (!buyer.referrerId) return;
 
@@ -18,7 +22,9 @@ async function distributeReferralEarnings(buyer, purchaseAmount, isFirstPurchase
     // ❌ 일반회원이면 수당 지급 불가
     const eligibleLevels = ["회원", "대리점", "총판"];
     if (!eligibleLevels.includes(referrer.membershipLevel)) {
-        console.log(`⚠️ 수당 미지급 - 추천인 등급이 낮음: ${referrer.memberId} (${referrer.membershipLevel})`);
+        console.log(
+            `⚠️ 수당 미지급 - 추천인 등급이 낮음: ${referrer.memberId} (${referrer.membershipLevel})`
+        );
         return;
     }
 
@@ -41,6 +47,8 @@ async function distributeReferralEarnings(buyer, purchaseAmount, isFirstPurchase
     referrer.unpaidReferralEarnings += commission;
     await referrer.save();
 
-    console.log(`✅ 추천인 수당 지급 완료: ${commission}원 (${referrer.memberId})`);
+    console.log(
+        `✅ 추천인 수당 지급 완료: ${commission}원 (${referrer.memberId})`
+    );
 }
 module.exports = distributeReferralEarnings;

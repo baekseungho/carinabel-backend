@@ -202,7 +202,10 @@ router.get(
         }
 
         // ✅ referrerId 정보까지 populate해서 가져오기
-        const user = await User.findById(decoded.id).populate("referrerId", "memberId fullName");
+        const user = await User.findById(decoded.id).populate(
+            "referrerId",
+            "memberId fullName"
+        );
         if (!user) {
             res.status(404);
             throw new Error("사용자를 찾을 수 없습니다.");
@@ -238,12 +241,16 @@ router.put(
         console.log("📝 업데이트 요청:", userId, additionalAmount);
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         // 🟡 첫 구매 여부 판단
@@ -266,19 +273,29 @@ router.put(
 
         // 🔵 추천인 수당 지급 로직
         if (user.referrerId) {
-            const shouldPayReferral = isFirstPurchase ? additionalAmount >= 550000 : true;
+            const shouldPayReferral = isFirstPurchase
+                ? additionalAmount >= 550000
+                : true;
 
             if (shouldPayReferral) {
-                await distributeReferralEarnings(user, additionalAmount, isFirstPurchase);
+                await distributeReferralEarnings(
+                    user,
+                    additionalAmount,
+                    isFirstPurchase
+                );
             }
         }
-
+        console.log(
+            "👀 user instanceof mongoose.Document:",
+            user instanceof mongoose.Document
+        );
         await user.save();
 
         res.json({
             _id: user._id,
             fullName: user.fullName,
             memberId: user.memberId,
+            email: user.email,
             phone: user.phone,
             birthday: user.birthday,
             membershipLevel: user.membershipLevel,
@@ -298,7 +315,9 @@ router.get(
         const { userId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const monthStats = [];
@@ -444,7 +463,14 @@ const getPurchaseAmount = async (userId, period = "전체") => {
     if (period === "당월") {
         match.createdAt = {
             $gte: new Date(now.getFullYear(), now.getMonth(), 1),
-            $lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+            $lte: new Date(
+                now.getFullYear(),
+                now.getMonth() + 1,
+                0,
+                23,
+                59,
+                59
+            ),
         };
     } else if (period === "전월") {
         match.createdAt = {
@@ -453,7 +479,10 @@ const getPurchaseAmount = async (userId, period = "전체") => {
         };
     }
 
-    const agg = await Purchase.aggregate([{ $match: match }, { $group: { _id: null, total: { $sum: "$amount" } } }]);
+    const agg = await Purchase.aggregate([
+        { $match: match },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
 
     return agg[0]?.total || 0;
 };
@@ -466,17 +495,26 @@ router.get(
         const { period = "전체" } = req.query;
 
         // 🔸 로그인 사용자
-        const user = await User.findById(userId).select("fullName memberId membershipLevel referrerId");
+        const user = await User.findById(userId).select(
+            "fullName memberId membershipLevel referrerId"
+        );
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         // 🔼 추천인 (상단 노드)
         let referrer = null;
         if (user.referrerId) {
-            const refUser = await User.findById(user.referrerId).select("fullName memberId membershipLevel");
+            const refUser = await User.findById(user.referrerId).select(
+                "fullName memberId membershipLevel"
+            );
             if (refUser) {
-                const refPurchaseAmount = await getPurchaseAmount(refUser._id, period);
+                const refPurchaseAmount = await getPurchaseAmount(
+                    refUser._id,
+                    period
+                );
                 referrer = {
                     ...refUser.toObject(),
                     purchaseAmount: refPurchaseAmount,
@@ -485,7 +523,9 @@ router.get(
         }
 
         // 🔽 내가 추천한 사용자들
-        const children = await User.find({ referrerId: userId }).select("fullName memberId membershipLevel");
+        const children = await User.find({ referrerId: userId }).select(
+            "fullName memberId membershipLevel"
+        );
 
         const childStats = await Promise.all(
             children.map(async (child) => {
@@ -521,7 +561,9 @@ router.get(
         const { userId, yearMonth } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const [year, month] = yearMonth.split("-");
@@ -551,18 +593,24 @@ router.put(
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             userId = decoded.id;
         } catch (err) {
-            return res.status(401).json({ message: "유효하지 않은 토큰입니다." });
+            return res
+                .status(401)
+                .json({ message: "유효하지 않은 토큰입니다." });
         }
 
         const { bankName, accountNumber, socialSecurityNumber } = req.body;
 
         if (!bankName || !accountNumber || !socialSecurityNumber) {
-            return res.status(400).json({ message: "입력값이 유효하지 않습니다." });
+            return res
+                .status(400)
+                .json({ message: "입력값이 유효하지 않습니다." });
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         user.bankName = bankName;
