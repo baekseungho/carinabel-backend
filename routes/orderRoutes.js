@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const asyncHandler = require("express-async-handler");
 const mongoose = require("mongoose");
+const { protect } = require("../middleware/authMiddleware");
 const Order = require("../models/Order");
 const Purchase = require("../models/Purchase");
 const User = require("../models/User");
@@ -9,6 +10,7 @@ const Product = require("../models/Product");
 const Address = require("../models/Address"); // 기본 배송지 모델
 const Kit = require("../models/Kit"); // 키트 모델도 불러오기
 const generateOrderNumber = require("../utils/generateOrderNumber");
+const cancelService = require("../services/cancelService");
 // 주문 생성 API
 router.post(
     "/create",
@@ -76,6 +78,52 @@ router.post(
         });
 
         res.status(201).json(newOrder);
+    })
+);
+
+// 주문 취소 API
+router.post(
+    "/cancel/:orderId",
+    protect,
+    asyncHandler(async (req, res) => {
+        const { orderId } = req.params;
+        const { payMethod, trxId, amount, cancelReason } = req.body;
+
+        const order = await Order.findById(orderId);
+        if (!order) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+
+        if (order.userId.toString() !== req.user.id) {
+            return res.status(403).json({ message: "본인 주문만 취소할 수 있습니다." });
+        }
+
+        if (order.status === "취소됨") return res.status(400).json({ message: "이미 취소된 주문입니다." });
+
+        if (!trxId) return res.status(400).json({ message: "거래번호가 없습니다." });
+
+        const { RETURNURL, TOKEN } = await cancelService.requestCancelReady(payMethod);
+
+        const cancelRes = await cancelService.executeCancel({
+            returnUrl: RETURNURL,
+            token: TOKEN,
+            cpid: process.env.KIWOOMPAY_CPID,
+            trxId,
+            amount,
+            cancelReason,
+        });
+
+        if (cancelRes.RESULTCODE !== "0000") {
+            console.error("❌ 취소 실패:", cancelRes.ERRORMESSAGE);
+            return res.status(500).json({ message: cancelRes.ERRORMESSAGE });
+        }
+
+        order.status = "취소됨";
+        await order.save();
+
+        res.json({
+            message: "주문이 취소되었습니다.",
+            cancelDate: cancelRes.CANCELDATE,
+            amount: cancelRes.AMOUNT,
+        });
     })
 );
 
@@ -215,9 +263,21 @@ router.get(
             virtualAccount: order.userId.accountNumber || "00000000000000",
             dueDate: order.createdAt ? new Date(new Date(order.createdAt).getTime() + 3 * 24 * 60 * 60 * 1000) : null,
         };
+        let zipCode = "";
+        let addressWithoutZip = "";
 
+        if (delivery?.address) {
+            const match = delivery.address.match(/^(\d{5})\s(.+)$/);
+            if (match) {
+                zipCode = match[1]; // "48060"
+                addressWithoutZip = match[2]; // "부산 해운대구 APEC로 30 (우동), 벡스코제2전시장 604-1701"
+            } else {
+                addressWithoutZip = delivery.address; // 혹시 앞에 우편번호 없으면 전체
+            }
+        }
         res.json({
             _id: order._id,
+            orderNumber: order.orderNumber, // ✅ 주문번호 추가
             createdAt: order.createdAt,
             product: {
                 productName: order.productName,
@@ -227,7 +287,14 @@ router.get(
             },
             status: order.status,
             user: order.userId,
-            delivery,
+            delivery: {
+                recipientName: delivery?.recipientName || order.userId.fullName,
+                phone: delivery?.phone || order.userId.mobile,
+                address: addressWithoutZip, // ✅ 우편번호 제거된 주소
+                detailAddress: delivery?.detailAddress || "",
+                zipCode: zipCode, // ✅ 우편번호만 따로
+                memo: delivery?.memo || "",
+            },
             payment,
         });
     })
