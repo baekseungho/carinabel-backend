@@ -101,6 +101,23 @@ const userSchema = new mongoose.Schema({
         trim: true,
         default: "",
     },
+    isDeleted: {
+        type: Boolean,
+        default: false,
+    },
+    deletedAt: {
+        type: Date,
+        default: null,
+    },
+    deleteReason: {
+        type: String,
+        default: "",
+    },
+    previousReferrerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+    },
 });
 
 // 비밀번호 암호화 (Pre-save Hook)

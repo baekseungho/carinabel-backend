@@ -73,7 +73,10 @@ router.get(
     asyncHandler(async (req, res) => {
         const { name, memberId, level, page = 1, size = 10, fromDate, toDate } = req.query;
 
-        const query = {};
+        const query = {
+            isDeleted: false, // ✅ 탈퇴 회원 제외
+        };
+
         if (name) query.fullName = new RegExp(name, "i");
         if (memberId) query.memberId = new RegExp(memberId, "i");
         if (level) query.membershipLevel = level;
@@ -84,7 +87,7 @@ router.get(
             if (fromDate) query.createdAt.$gte = new Date(fromDate);
             if (toDate) {
                 const endDate = new Date(toDate);
-                endDate.setDate(endDate.getDate() + 1); // toDate 포함되도록 하루 더함
+                endDate.setDate(endDate.getDate() + 1);
                 query.createdAt.$lt = endDate;
             }
         }
@@ -95,8 +98,8 @@ router.get(
             .sort({ createdAt: -1 })
             .skip((page - 1) * size)
             .limit(Number(size))
-            .populate("referrerId", "fullName memberId") // ✅ 추천인 정보 포함
-            .lean(); // plain object로 반환
+            .populate("referrerId", "fullName memberId")
+            .lean();
 
         const result = users.map((user) => ({
             _id: user._id,
@@ -115,6 +118,90 @@ router.get(
             users: result,
             total,
         });
+    })
+);
+
+// 🔍 탈퇴 회원 목록 조회
+router.get(
+    "/withdrawn-users",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const { name, memberId, page = 1, size = 10, fromDate, toDate } = req.query;
+
+        const query = {
+            isDeleted: true, // ✅ 탈퇴 회원만 조회
+        };
+
+        if (name) query.fullName = new RegExp(name, "i");
+        if (memberId) query.memberId = new RegExp(memberId, "i");
+
+        // 가입일 필터
+        if (fromDate || toDate) {
+            query.createdAt = {};
+            if (fromDate) query.createdAt.$gte = new Date(fromDate);
+            if (toDate) {
+                const endDate = new Date(toDate);
+                endDate.setDate(endDate.getDate() + 1);
+                query.createdAt.$lt = endDate;
+            }
+        }
+
+        const total = await User.countDocuments(query);
+
+        const users = await User.find(query)
+            .sort({ deletedAt: -1 }) // 최근 탈퇴 순으로 정렬
+            .skip((page - 1) * size)
+            .limit(Number(size))
+            .populate("referrerId", "fullName memberId")
+            .lean();
+
+        const result = users.map((user) => ({
+            _id: user._id,
+            fullName: user.fullName,
+            memberId: user.memberId,
+            phone: user.phone,
+            birthday: user.birthday,
+            membershipLevel: user.membershipLevel,
+            deletedAt: user.deletedAt,
+            deleteReason: user.deleteReason,
+            referrerName: user.referrerId?.fullName || "-",
+            referrerMemberId: user.referrerId?.memberId || "-",
+        }));
+
+        res.json({
+            users: result,
+            total,
+        });
+    })
+);
+
+router.put(
+    "/restore/:userId",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const { userId } = req.params;
+
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+        if (!user.isDeleted) return res.status(400).json({ message: "이미 활성화된 회원입니다." });
+
+        // 하위 회원들의 추천인 복구
+        const subUsers = await User.find({ referrerId: user.referrerId || null, previousReferrerId: user._id });
+        for (const subUser of subUsers) {
+            subUser.referrerId = subUser.previousReferrerId;
+            subUser.previousReferrerId = null;
+            await subUser.save();
+        }
+
+        user.isDeleted = false;
+        user.deletedAt = null;
+        user.deleteReason = "";
+
+        await user.save();
+
+        res.json({ message: "회원 복구가 완료되었습니다." });
     })
 );
 
