@@ -80,7 +80,41 @@ router.post(
         res.status(201).json(newOrder);
     })
 );
+router.delete(
+    "/delete-unpaid/:orderId",
+    asyncHandler(async (req, res) => {
+        const { orderId } = req.params;
 
+        const order = await Order.findById(orderId);
+        if (!order) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+
+        if (order.status !== "입금대기") {
+            return res.status(400).json({ message: "입금대기 상태가 아닙니다. 삭제할 수 없습니다." });
+        }
+
+        // 재고 복구
+        const product = await Product.findOne({ koreanName: order.productName });
+        if (product) {
+            product.stock += order.quantity;
+            await product.save();
+        } else {
+            // 키트일 경우 구성품 재고 복구
+            const kit = await Kit.findOne({ kitName: order.productName }).populate("products.productId");
+            if (kit) {
+                for (const item of kit.products) {
+                    const p = item.productId;
+                    p.stock += item.quantity * order.quantity;
+                    await p.save();
+                }
+            }
+        }
+
+        // 주문 삭제
+        await Order.deleteOne({ _id: orderId });
+
+        res.json({ success: true, message: "결제되지 않은 주문을 삭제했습니다." });
+    })
+);
 // 주문 취소 API
 router.post(
     "/cancel/:orderId",
