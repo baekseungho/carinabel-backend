@@ -127,6 +127,70 @@ router.post(
     })
 );
 
+// 주문 상태 업데이트 API
+router.put(
+    "/update-status/:orderId",
+    protect,
+    asyncHandler(async (req, res) => {
+        const { orderId } = req.params;
+        const { status } = req.body;
+
+        if (!["결제완료", "배송중", "배송완료", "취소됨"].includes(status)) {
+            return res.status(400).json({ message: "허용되지 않는 상태입니다." });
+        }
+
+        const order = await Order.findById(orderId);
+        if (!order) {
+            return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+        }
+
+        order.status = status;
+        await order.save();
+
+        res.json({ message: "주문 상태가 업데이트되었습니다.", order });
+    })
+);
+// 결제 결과 조회 API
+router.get(
+    "/payment-status/:orderNo",
+    protect,
+    asyncHandler(async (req, res) => {
+        const { orderNo } = req.params;
+
+        const jwtToken = req.headers.authorization?.split(" ")[1];
+        if (!jwtToken) {
+            return res.status(401).json({ message: "JWT 토큰이 필요합니다." });
+        }
+
+        const statusUrl = `https://api.kiwoompay.co.kr/api/payment/status/${orderNo}`;
+        const response = await fetch(statusUrl, {
+            method: "GET",
+            headers: {
+                Authorization: `Bearer ${jwtToken}`,
+            },
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            return res.status(400).json({ message: data.message || "결제 상태 확인 실패" });
+        }
+
+        // 주문 상태 업데이트
+        const order = await Order.findOne({ orderNumber: orderNo });
+        if (order && order.status !== "결제완료") {
+            order.status = "결제완료";
+            await order.save();
+        }
+
+        res.json({
+            message: "결제 성공",
+            status: data.status,
+            orderInfo: order,
+            raw: data,
+        });
+    })
+);
 // 주문 조회 API (개별 또는 전체)
 router.get(
     "/",
