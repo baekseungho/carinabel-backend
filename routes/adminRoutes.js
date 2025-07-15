@@ -13,6 +13,7 @@ const Referral = require("../models/Referral");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
 const Kit = require("../models/Kit");
+const Notice = require("../models/Notice");
 // 관리자 계정생성
 router.post(
     "/create",
@@ -71,7 +72,15 @@ router.get(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { name, memberId, level, page = 1, size = 10, fromDate, toDate } = req.query;
+        const {
+            name,
+            memberId,
+            level,
+            page = 1,
+            size = 10,
+            fromDate,
+            toDate,
+        } = req.query;
 
         const query = {
             isDeleted: false, // ✅ 탈퇴 회원 제외
@@ -127,7 +136,14 @@ router.get(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { name, memberId, page = 1, size = 10, fromDate, toDate } = req.query;
+        const {
+            name,
+            memberId,
+            page = 1,
+            size = 10,
+            fromDate,
+            toDate,
+        } = req.query;
 
         const query = {
             isDeleted: true, // ✅ 탈퇴 회원만 조회
@@ -184,11 +200,20 @@ router.put(
         const { userId } = req.params;
 
         const user = await User.findById(userId);
-        if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
-        if (!user.isDeleted) return res.status(400).json({ message: "이미 활성화된 회원입니다." });
+        if (!user)
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
+        if (!user.isDeleted)
+            return res
+                .status(400)
+                .json({ message: "이미 활성화된 회원입니다." });
 
         // 하위 회원들의 추천인 복구
-        const subUsers = await User.find({ referrerId: user.referrerId || null, previousReferrerId: user._id });
+        const subUsers = await User.find({
+            referrerId: user.referrerId || null,
+            previousReferrerId: user._id,
+        });
         for (const subUser of subUsers) {
             subUser.referrerId = subUser.previousReferrerId;
             subUser.previousReferrerId = null;
@@ -209,7 +234,15 @@ router.put(
 router.get(
     "/orders",
     asyncHandler(async (req, res) => {
-        const { page = 1, size = 10, orderNumber, productName, name, fromDate, toDate } = req.query;
+        const {
+            page = 1,
+            size = 10,
+            orderNumber,
+            productName,
+            name,
+            fromDate,
+            toDate,
+        } = req.query;
 
         const match = {};
 
@@ -272,7 +305,16 @@ router.post(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { category, productName, koreanName, volume, consumerPrice, imagePath, detailImage, stock } = req.body;
+        const {
+            category,
+            productName,
+            koreanName,
+            volume,
+            consumerPrice,
+            imagePath,
+            detailImage,
+            stock,
+        } = req.body;
 
         // 🔹 고유 시퀀스 번호 증가 및 가져오기
         let counter = await Counter.findOneAndUpdate(
@@ -308,11 +350,22 @@ router.put(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { category, productName, koreanName, volume, consumerPrice, stock, imagePath, detailImage } = req.body;
+        const {
+            category,
+            productName,
+            koreanName,
+            volume,
+            consumerPrice,
+            stock,
+            imagePath,
+            detailImage,
+        } = req.body;
 
         const product = await Product.findById(req.params.id);
         if (!product) {
-            return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "상품을 찾을 수 없습니다." });
         }
 
         product.category = category || product.category;
@@ -320,7 +373,10 @@ router.put(
         product.koreanName = koreanName || product.koreanName;
         product.volume = volume || product.volume;
         product.consumerPrice = consumerPrice || product.consumerPrice;
-        product.memberPrice = calculateDiscountedPrice(consumerPrice || product.consumerPrice, "일반회원");
+        product.memberPrice = calculateDiscountedPrice(
+            consumerPrice || product.consumerPrice,
+            "일반회원"
+        );
         product.stock = stock !== undefined ? stock : product.stock;
         product.imagePath = imagePath || product.imagePath;
         product.detailImage = detailImage || product.detailImage;
@@ -352,7 +408,15 @@ router.post(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { kitName, products, price, originalPrice, description, imagePath, detailImage } = req.body;
+        const {
+            kitName,
+            products,
+            price,
+            originalPrice,
+            description,
+            imagePath,
+            detailImage,
+        } = req.body;
 
         // 🔹 시퀀스 증가
         const counter = await Counter.findOneAndUpdate(
@@ -396,7 +460,15 @@ router.put(
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { kitName, products, price, originalPrice, description, imagePath, detailImage } = req.body;
+        const {
+            kitName,
+            products,
+            price,
+            originalPrice,
+            description,
+            imagePath,
+            detailImage,
+        } = req.body;
 
         const updatedData = {
             kitName,
@@ -413,7 +485,9 @@ router.put(
         });
 
         if (!kit) {
-            return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "해당 키트를 찾을 수 없습니다." });
         }
 
         res.json(kit);
@@ -428,7 +502,9 @@ router.delete(
     asyncHandler(async (req, res) => {
         const kit = await Kit.findByIdAndDelete(req.params.id);
         if (!kit) {
-            return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "해당 키트를 찾을 수 없습니다." });
         }
         res.json({ message: "키트가 삭제되었습니다." });
     })
@@ -473,7 +549,9 @@ router.get(
         const { userId } = req.params;
 
         if (!String(userId).match(/^[0-9a-fA-F]{24}$/)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const referralRecords = await Referral.find({ referrerId: userId })
@@ -491,16 +569,22 @@ router.post(
 
         // ObjectId 유효성 검사 (정규식 사용)
         if (!String(userId).match(/^[0-9a-fA-F]{24}$/)) {
-            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "사용자를 찾을 수 없습니다." });
         }
 
         if (user.unpaidReferralEarnings < amount) {
-            return res.status(400).json({ message: "미지급 수당이 부족합니다." });
+            return res
+                .status(400)
+                .json({ message: "미지급 수당이 부족합니다." });
         }
 
         user.unpaidReferralEarnings -= amount;
@@ -535,7 +619,9 @@ router.get(
             query.userId = { $in: users.map((u) => u._id) };
         }
 
-        const orders = await Order.find(query).populate("userId", "fullName").sort({ createdAt: -1 });
+        const orders = await Order.find(query)
+            .populate("userId", "fullName")
+            .sort({ createdAt: -1 });
 
         res.status(200).json(orders);
     })
@@ -551,12 +637,16 @@ router.put(
         const { status } = req.body;
 
         if (!mongoose.Types.ObjectId.isValid(orderId)) {
-            return res.status(400).json({ message: "유효하지 않은 주문 ID입니다." });
+            return res
+                .status(400)
+                .json({ message: "유효하지 않은 주문 ID입니다." });
         }
 
         const order = await Order.findById(orderId);
         if (!order) {
-            return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+            return res
+                .status(404)
+                .json({ message: "주문을 찾을 수 없습니다." });
         }
 
         order.status = status;
@@ -576,4 +666,79 @@ router.get(
     })
 );
 
+// 📌 전체 공지사항 목록 조회 (관리자 전용)
+router.get(
+    "/notices",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const notices = await Notice.find().sort({ date: -1 });
+        res.json(notices);
+    })
+);
+
+// ➕ 공지사항 등록
+router.post(
+    "/notices/add",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const { title, summary, content, date } = req.body;
+
+        if (!title || !summary || !content || !date) {
+            return res
+                .status(400)
+                .json({ message: "모든 항목을 입력해주세요." });
+        }
+
+        const notice = new Notice({ title, summary, content, date });
+        await notice.save();
+
+        res.status(201).json({ message: "공지사항이 등록되었습니다.", notice });
+    })
+);
+
+// ✏️ 공지사항 수정
+router.put(
+    "/notices/update/:id",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const { title, summary, content, date } = req.body;
+
+        const notice = await Notice.findById(req.params.id);
+        if (!notice) {
+            return res
+                .status(404)
+                .json({ message: "공지사항을 찾을 수 없습니다." });
+        }
+
+        notice.title = title || notice.title;
+        notice.summary = summary || notice.summary;
+        notice.content = content || notice.content;
+        notice.date = date || notice.date;
+
+        await notice.save();
+
+        res.json({ message: "공지사항이 수정되었습니다.", notice });
+    })
+);
+
+// ❌ 공지사항 삭제
+router.delete(
+    "/notices/delete/:id",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const notice = await Notice.findById(req.params.id);
+        if (!notice) {
+            return res
+                .status(404)
+                .json({ message: "공지사항을 찾을 수 없습니다." });
+        }
+
+        await notice.deleteOne();
+        res.json({ message: "공지사항이 삭제되었습니다." });
+    })
+);
 module.exports = router;

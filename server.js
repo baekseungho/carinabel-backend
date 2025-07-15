@@ -12,6 +12,7 @@ const qnaRoutes = require("./routes/qnaRoutes");
 const adminRoutes = require("./routes/adminRoutes"); // 추가
 const kitRoutes = require("./routes/kitRoutes");
 const payRoutes = require("./routes/payRoutes");
+const noticeRoutes = require("./routes/noticeRoutes");
 // 환경변수 설정
 dotenv.config();
 
@@ -46,6 +47,8 @@ app.use("/api/cart", cartRoutes);
 
 // 🆕 주문 라우터 등록
 app.use("/api/orders", orderRoutes);
+
+app.use("/api/notices", noticeRoutes);
 
 // 주소 라우터
 app.use("/api/addresses", addressRoutes);
