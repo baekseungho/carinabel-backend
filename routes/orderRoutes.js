@@ -15,7 +15,21 @@ const cancelService = require("../services/cancelService");
 router.post(
     "/create",
     asyncHandler(async (req, res) => {
-        const { userId, amount, quantity, status, deliveryDate, productName, imagePath } = req.body;
+        const {
+            userId,
+            amount,
+            quantity,
+            status,
+            deliveryDate,
+            productName,
+            imagePath,
+            orderType,
+            cartItems = [],
+        } = req.body;
+
+        if (!["oil", "kit", "cart"].includes(orderType)) {
+            return res.status(400).json({ message: "올바르지 않은 주문 유형입니다." });
+        }
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
@@ -23,43 +37,69 @@ router.post(
 
         console.log("🧾 주문 생성 요청:", req.body);
 
-        // 1️⃣ 상품 찾기 (Product → 없으면 Kit)
-        let product = await Product.findOne({ koreanName: productName });
-
-        if (product) {
-            // 일반 상품 주문 처리
-            if (product.stock < quantity) {
-                return res.status(400).json({ message: `재고가 부족합니다. 현재 남은 재고: ${product.stock}` });
+        // 1️⃣ 장바구니 주문 처리
+        if (orderType === "cart") {
+            if (!Array.isArray(cartItems) || cartItems.length === 0) {
+                return res.status(400).json({ message: "장바구니 항목이 없습니다." });
             }
 
-            product.stock -= quantity;
-            await product.save();
-        } else {
-            // 키트 상품 주문 처리
-            const kit = await Kit.findOne({ kitName: productName }).populate("products.productId");
+            // 장바구니 상품 유효성 확인 및 재고 차감
+            for (const item of cartItems) {
+                if (!mongoose.Types.ObjectId.isValid(item.productId)) {
+                    return res.status(400).json({ message: "잘못된 상품 ID입니다." });
+                }
 
-            if (!kit) {
-                return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
-            }
+                const product = await Product.findById(item.productId);
+                if (!product) {
+                    return res.status(404).json({ message: `상품을 찾을 수 없습니다. ID: ${item.productId}` });
+                }
 
-            // 모든 구성품 재고 확인
-            const insufficient = kit.products.find((item) => item.productId.stock < item.quantity * quantity);
-            if (insufficient) {
-                return res.status(400).json({
-                    message: `구성품 ${insufficient.productId.koreanName}의 재고가 부족합니다. 현재 재고: ${insufficient.productId.stock}`,
-                });
-            }
+                if (product.stock < item.quantity) {
+                    return res.status(400).json({
+                        message: `상품 ${product.koreanName}의 재고가 부족합니다. 현재 재고: ${product.stock}`,
+                    });
+                }
 
-            // 구성품 재고 차감
-            for (const item of kit.products) {
-                const product = item.productId;
-                product.stock -= item.quantity * quantity;
+                product.stock -= item.quantity;
                 await product.save();
+            }
+        } else {
+            // 2️⃣ 오일 or 키트 주문 처리
+            let product = await Product.findOne({ koreanName: productName });
+
+            if (product) {
+                // 일반 오일
+                if (product.stock < quantity) {
+                    return res.status(400).json({ message: `재고가 부족합니다. 현재 남은 재고: ${product.stock}` });
+                }
+
+                product.stock -= quantity;
+                await product.save();
+            } else {
+                // 키트 주문
+                const kit = await Kit.findOne({ kitName: productName }).populate("products.productId");
+
+                if (!kit) {
+                    return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
+                }
+
+                const insufficient = kit.products.find((item) => item.productId.stock < item.quantity * quantity);
+                if (insufficient) {
+                    return res.status(400).json({
+                        message: `구성품 ${insufficient.productId.koreanName}의 재고가 부족합니다. 현재 재고: ${insufficient.productId.stock}`,
+                    });
+                }
+
+                for (const item of kit.products) {
+                    const product = item.productId;
+                    product.stock -= item.quantity * quantity;
+                    await product.save();
+                }
             }
         }
 
-        const orderNumber = await generateOrderNumber();
         // 3️⃣ 주문 생성
+        const orderNumber = await generateOrderNumber();
         const newOrder = await Order.create({
             userId,
             productName,
@@ -68,10 +108,12 @@ router.post(
             quantity,
             status: status || "결제완료",
             deliveryDate: deliveryDate || null,
-            orderNumber, // 추가된 필드
+            orderNumber,
+            orderType,
+            cartItems: orderType === "cart" ? cartItems : [], // 장바구니 상품 정보 저장
         });
 
-        // 4️⃣ 통계용 기록
+        // 4️⃣ 통계 기록
         await Purchase.create({
             userId,
             amount,
@@ -80,6 +122,7 @@ router.post(
         res.status(201).json(newOrder);
     })
 );
+
 router.delete(
     "/delete-unpaid/:orderId",
     asyncHandler(async (req, res) => {

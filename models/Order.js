@@ -11,6 +11,11 @@ const orderSchema = new mongoose.Schema({
         unique: true,
         required: true,
     },
+    orderType: {
+        type: String,
+        enum: ["oil", "kit", "cart"],
+        required: true,
+    },
     productName: {
         type: String, // ✅ 상품명 추가
         required: true,
@@ -44,7 +49,15 @@ const orderSchema = new mongoose.Schema({
     deliveryDate: {
         type: Date,
     },
-
+    cartItems: [
+        {
+            productId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "Product",
+            },
+            quantity: Number,
+        },
+    ],
     createdAt: {
         type: Date,
         default: Date.now,

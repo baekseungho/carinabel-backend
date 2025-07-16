@@ -6,6 +6,7 @@ const User = require("../models/User");
 const calculateDiscountedPrice = require("../utils/calculateDiscount");
 const asyncHandler = require("express-async-handler");
 const jwt = require("jsonwebtoken");
+const { protect } = require("../middleware/authMiddleware");
 
 // 🔄 회원 등급 가져오기
 const getMembershipLevel = async (token) => {
@@ -40,10 +41,7 @@ router.post(
         }
 
         // 할인 가격 계산
-        const price = calculateDiscountedPrice(
-            product.consumerPrice,
-            membershipLevel
-        );
+        const price = calculateDiscountedPrice(product.consumerPrice, membershipLevel);
 
         // 이미 장바구니에 있는지 확인
         const userId = jwt.verify(token, process.env.JWT_SECRET).id;
@@ -96,10 +94,7 @@ router.get(
         // 가격 재계산 (회원 등급별)
         const itemsWithDiscount = cartItems.map((item) => ({
             ...item.toObject(),
-            price: calculateDiscountedPrice(
-                item.productId.consumerPrice,
-                membershipLevel
-            ),
+            price: calculateDiscountedPrice(item.productId.consumerPrice, membershipLevel),
         }));
 
         res.json(itemsWithDiscount);
@@ -165,5 +160,12 @@ router.delete(
         res.json({ message: "장바구니에서 상품이 삭제되었습니다." });
     })
 );
-
+router.delete(
+    "/clear",
+    protect,
+    asyncHandler(async (req, res) => {
+        await CartItem.deleteMany({ userId: req.user.id });
+        res.json({ message: "장바구니가 비워졌습니다." });
+    })
+);
 module.exports = router;
