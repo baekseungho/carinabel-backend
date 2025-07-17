@@ -38,10 +38,12 @@ const orderSchema = new mongoose.Schema({
             "배송중", // IN_TRANSIT
             "배송완료", // DELIVERED
             "구매확정", // CONFIRMED
+            "취소대기",
             "취소됨", // CANCELLED
             "반품됨", // RETURNED
         ],
     },
+    reason: { type: String, default: "" },
     imagePath: {
         type: String,
         default: "",

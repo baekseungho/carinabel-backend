@@ -210,9 +210,20 @@ router.put(
     protect,
     asyncHandler(async (req, res) => {
         const { orderId } = req.params;
-        const { status } = req.body;
+        const { status, reason } = req.body;
 
-        if (!["결제완료", "배송중", "배송완료", "취소됨"].includes(status)) {
+        const allowedStatuses = [
+            "결제완료",
+            "상품준비중",
+            "배송중",
+            "배송완료",
+            "구매확정",
+            "취소대기",
+            "취소됨",
+            "반품됨",
+        ];
+
+        if (!allowedStatuses.includes(status)) {
             return res.status(400).json({ message: "허용되지 않는 상태입니다." });
         }
 
@@ -221,12 +232,23 @@ router.put(
             return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
         }
 
+        // ✅ 이미 취소 신청된 경우 막기
+        if (order.status === "취소대기" && status === "취소대기") {
+            return res.status(400).json({ message: "이미 취소가 신청된 주문입니다." });
+        }
+
         order.status = status;
+
+        if (status === "취소대기" && reason) {
+            order.reason = reason;
+        }
+
         await order.save();
 
         res.json({ message: "주문 상태가 업데이트되었습니다.", order });
     })
 );
+
 // 결제 결과 조회 API
 router.get(
     "/payment-status/:orderNo",
