@@ -14,6 +14,7 @@ const Product = require("../models/Product");
 const Counter = require("../models/Counter");
 const Kit = require("../models/Kit");
 const Notice = require("../models/Notice");
+const axios = require("axios");
 // 관리자 계정생성
 router.post(
     "/create",
@@ -256,14 +257,6 @@ router.get(
             .limit(Number(size));
 
         res.json({ orders, total });
-    })
-); // 관리자: 취소대기 상태의 주문 조회
-router.get(
-    "/cancel-pending",
-    adminOnly, // 관리자 인증 미들웨어
-    asyncHandler(async (req, res) => {
-        const orders = await Order.find({ status: "취소대기" });
-        res.json(orders);
     })
 );
 
@@ -655,6 +648,87 @@ router.delete(
 
         await notice.deleteOne();
         res.json({ message: "공지사항이 삭제되었습니다." });
+    })
+);
+
+// 관리자: 취소대기 상태의 주문 조회
+router.get(
+    "/cancel-pending",
+    protect,
+    adminOnly, // 관리자 인증 미들웨어
+    asyncHandler(async (req, res) => {
+        const orders = await Order.find({ status: "취소대기" });
+        res.json(orders);
+    })
+);
+
+// 관리자: 실제 취소 요청 처리
+router.post(
+    "/cancel-order/:orderId",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const { orderId } = req.params;
+        const { trxId, amount, reason, payMethod } = req.body;
+
+        const order = await Order.findById(orderId);
+        if (!order) return res.status(404).json({ message: "주문이 존재하지 않습니다." });
+        if (order.status !== "취소대기") return res.status(400).json({ message: "이미 처리된 주문입니다." });
+
+        // 🔐 Authorization 키 (키움페이 연동키)
+        const AUTHKEY = process.env.WINPAY_CANCEL_KEY;
+        const CPID = process.env.WINPAY_CPID;
+
+        try {
+            const readyRes = await axios.post(
+                "https://api.kiwoompay.co.kr/pay/ready",
+                {
+                    CPID,
+                    PAYMETHOD: payMethod,
+                    CANCELREQ: "Y",
+                },
+                {
+                    headers: {
+                        "Content-Type": "application/json;charset=EUC-KR",
+                        Authorization: AUTHKEY,
+                    },
+                }
+            );
+
+            const { RETURNURL, TOKEN } = readyRes.data;
+
+            // ✅ 최종 취소 API 호출
+            const cancelRes = await axios.post(
+                RETURNURL,
+                {
+                    CPID,
+                    TRXID: trxId,
+                    AMOUNT: amount.toString(),
+                    CANCELREASON: reason,
+                    TOKEN,
+                },
+                {
+                    headers: {
+                        "Content-Type": "application/json;charset=EUC-KR",
+                        Authorization: AUTHKEY,
+                    },
+                }
+            );
+
+            const { RESULTCODE, ERRORMESSAGE } = cancelRes.data;
+            if (RESULTCODE !== "0000") {
+                return res.status(400).json({ message: "취소 실패: " + ERRORMESSAGE });
+            }
+
+            // 상태 업데이트
+            order.status = "취소됨";
+            await order.save();
+
+            res.json({ message: "정상적으로 취소되었습니다.", order });
+        } catch (err) {
+            console.error("❌ 키움페이 취소 실패:", err.response?.data || err.message);
+            res.status(500).json({ message: "키움페이 API 호출 중 오류가 발생했습니다." });
+        }
     })
 );
 module.exports = router;
