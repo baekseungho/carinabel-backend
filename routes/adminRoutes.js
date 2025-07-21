@@ -664,22 +664,29 @@ router.get(
 
 // 관리자: 실제 취소 요청 처리
 router.post(
-    "/cancel-order/:orderId",
+    "/cancel-order/:orderNumber",
     protect,
     adminOnly,
     asyncHandler(async (req, res) => {
-        const { orderId } = req.params;
+        const { orderNumber } = req.params;
         const { trxId, amount, reason, payMethod } = req.body;
 
-        const order = await Order.findById(orderId);
+        console.log("🧾 취소 요청 도착:");
+        console.log("orderNumber:", orderNumber);
+        console.log("trxId:", trxId);
+        console.log("amount:", amount);
+        console.log("reason:", reason);
+        console.log("payMethod:", payMethod);
+
+        const order = await Order.findOne({ orderNumber });
         if (!order) return res.status(404).json({ message: "주문이 존재하지 않습니다." });
         if (order.status !== "취소대기") return res.status(400).json({ message: "이미 처리된 주문입니다." });
 
-        // 🔐 Authorization 키 (키움페이 연동키)
         const AUTHKEY = process.env.WINPAY_CANCEL_KEY;
         const CPID = process.env.WINPAY_CPID;
 
         try {
+            console.log("🔐 [1단계] /pay/ready 호출...");
             const readyRes = await axios.post(
                 "https://api.kiwoompay.co.kr/pay/ready",
                 {
@@ -695,9 +702,10 @@ router.post(
                 }
             );
 
+            console.log("✅ READY 응답:", readyRes.data);
             const { RETURNURL, TOKEN } = readyRes.data;
 
-            // ✅ 최종 취소 API 호출
+            console.log("🔐 [2단계] RETURNURL로 최종 취소 요청:", RETURNURL);
             const cancelRes = await axios.post(
                 RETURNURL,
                 {
@@ -715,15 +723,18 @@ router.post(
                 }
             );
 
+            console.log("✅ CANCEL 응답:", cancelRes.data);
             const { RESULTCODE, ERRORMESSAGE } = cancelRes.data;
+
             if (RESULTCODE !== "0000") {
+                console.error("❌ 취소 실패:", ERRORMESSAGE);
                 return res.status(400).json({ message: "취소 실패: " + ERRORMESSAGE });
             }
 
-            // 상태 업데이트
             order.status = "취소됨";
             await order.save();
 
+            console.log("✅ 주문 상태 '취소됨'으로 변경 완료");
             res.json({ message: "정상적으로 취소되었습니다.", order });
         } catch (err) {
             console.error("❌ 키움페이 취소 실패:", err.response?.data || err.message);
@@ -731,4 +742,5 @@ router.post(
         }
     })
 );
+
 module.exports = router;
