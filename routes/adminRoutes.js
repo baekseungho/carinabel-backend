@@ -15,6 +15,7 @@ const Counter = require("../models/Counter");
 const Kit = require("../models/Kit");
 const Notice = require("../models/Notice");
 const axios = require("axios");
+const generateMemberId = require("../utils/generateMemberId");
 // 관리자 계정생성
 router.post(
     "/create",
@@ -740,6 +741,201 @@ router.post(
             console.error("❌ 키움페이 취소 실패:", err.response?.data || err.message);
             res.status(500).json({ message: "키움페이 API 호출 중 오류가 발생했습니다." });
         }
+    })
+);
+
+// 🔧 관리자 수기 회원 등록
+router.post(
+    "/manual-register",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const {
+            fullName,
+            email,
+            phone,
+            birthday,
+            password,
+            agreedToTerms,
+            accountNumber,
+            socialSecurityNumber,
+            bankName,
+            address,
+            referrermemberId,
+            createdAt, // ✅ 관리자 수기 입력
+        } = req.body;
+
+        if (!fullName || !phone || !birthday || !password) {
+            res.status(400);
+            throw new Error("필수 항목을 모두 입력해주세요.");
+        }
+
+        const phoneExists = await User.findOne({ phone });
+        if (phoneExists) {
+            res.status(400);
+            throw new Error("이미 사용 중인 휴대폰 번호입니다.");
+        }
+
+        let referrer = null;
+        if (referrermemberId) {
+            referrer = await User.findOne({ memberId: referrermemberId });
+            if (!referrer) {
+                res.status(400);
+                throw new Error("추천인을 찾을 수 없습니다.");
+            }
+        }
+
+        if (email) {
+            const emailExists = await User.findOne({ email });
+            if (emailExists) {
+                res.status(400);
+                throw new Error("이미 사용 중인 이메일입니다.");
+            }
+        }
+
+        const memberId = await generateMemberId();
+
+        const user = await User.create({
+            fullName,
+            email,
+            memberId,
+            phone,
+            birthday,
+            password,
+            agreedToTerms,
+            accountNumber,
+            socialSecurityNumber,
+            bankName: bankName || "",
+            address: address || "",
+            referrerId: referrer ? referrer._id : null,
+            createdAt: createdAt ? new Date(createdAt) : new Date(), // ✅ 수기 입력된 날짜 적용
+        });
+
+        const Address = require("../models/Address");
+        await Address.create({
+            userId: user._id,
+            recipientName: user.fullName,
+            phone: "",
+            mobile: user.phone,
+            address: user.address || "",
+            isDefault: true,
+        });
+
+        res.status(201).json({
+            message: "수기 회원 등록이 완료되었습니다.",
+            userId: user._id,
+            memberId: user.memberId,
+        });
+
+        console.log("✅ 수기 회원가입 완료:", user.fullName);
+    })
+);
+
+// 수기 주문추가
+router.post(
+    "/manual-order",
+    protect,
+    adminOnly,
+    asyncHandler(async (req, res) => {
+        const {
+            userId,
+            productName,
+            amount,
+            quantity,
+            status = "결제완료",
+            deliveryDate = null,
+            imagePath = "",
+            orderType = "oil", // oil | kit
+        } = req.body;
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ message: "회원을 찾을 수 없습니다." });
+
+        // 🔄 재고 차감
+        const Product = require("../models/Product");
+        const Kit = require("../models/Kit");
+
+        if (orderType === "oil") {
+            const product = await Product.findOne({ koreanName: productName });
+            if (!product) return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
+
+            if (product.stock < quantity) {
+                return res
+                    .status(400)
+                    .json({ message: `재고 부족: ${product.koreanName} - 남은 재고 ${product.stock}` });
+            }
+
+            product.stock -= quantity;
+            await product.save();
+        } else if (orderType === "kit") {
+            const kit = await Kit.findOne({ kitName: productName }).populate("products.productId");
+            if (!kit) return res.status(404).json({ message: "키트 상품을 찾을 수 없습니다." });
+
+            // 구성품 재고 확인
+            const insufficient = kit.products.find((item) => item.productId.stock < item.quantity * quantity);
+            if (insufficient) {
+                return res.status(400).json({
+                    message: `구성품 ${insufficient.productId.koreanName}의 재고가 부족합니다. 남은 재고: ${insufficient.productId.stock}`,
+                });
+            }
+
+            // 구성품 재고 차감
+            for (const item of kit.products) {
+                const product = item.productId;
+                product.stock -= item.quantity * quantity;
+                await product.save();
+            }
+        } else {
+            return res.status(400).json({ message: "잘못된 orderType입니다." });
+        }
+
+        // 주문 생성
+        const generateOrderNumber = require("../utils/generateOrderNumber");
+        const orderNumber = await generateOrderNumber();
+
+        const Order = require("../models/Order");
+        const newOrder = await Order.create({
+            userId,
+            productName,
+            imagePath,
+            amount,
+            quantity,
+            status,
+            deliveryDate,
+            orderType,
+            orderNumber,
+        });
+
+        // 통계 반영
+        const Purchase = require("../models/Purchase");
+        await Purchase.create({ userId, amount });
+
+        // 등급/수당 반영
+        const isFirstPurchase = !user.firstPurchaseDate;
+        if (isFirstPurchase && amount >= 550000) {
+            user.firstPurchaseDate = new Date();
+        }
+
+        const updateMembershipLevel = require("../utils/updateMembershipLevel");
+        updateMembershipLevel(user, amount);
+
+        const distributeReferralEarnings = require("../utils/referralEarnings");
+        const shouldPayReferral = isFirstPurchase ? amount >= 550000 : true;
+        if (user.referrerId && shouldPayReferral) {
+            await distributeReferralEarnings(user, amount, isFirstPurchase);
+        }
+
+        await user.save();
+
+        res.status(201).json({
+            message: "수기 주문 및 회원 반영 완료",
+            orderId: newOrder._id,
+            userId: user._id,
+        });
     })
 );
 
