@@ -36,6 +36,10 @@ router.post(
             throw new Error("모든 필드를 입력해주세요.");
         }
 
+        if (String(password).length < 8) {
+            return res.status(400).json({ message: "비밀번호는 8자 이상이어야 합니다." });
+        }
+
         const phoneExists = await User.findOne({ phone });
         if (phoneExists) {
             res.status(400);
@@ -50,10 +54,12 @@ router.post(
                 throw new Error("추천인을 찾을 수 없습니다.");
             }
         }
-        const emailExists = await User.findOne({ email });
-        if (emailExists) {
-            res.status(400);
-            throw new Error("이미 사용 중인 이메일입니다.");
+        if (email) {
+            const emailExists = await User.findOne({ email });
+            if (emailExists) {
+                res.status(400);
+                throw new Error("이미 사용 중인 이메일입니다.");
+            }
         }
         // ✅ 자동 회원번호 생성
         const memberId = await generateMemberId();
@@ -92,15 +98,10 @@ router.post(
             address: user.address,
             agreedToTerms: user.agreedToTerms,
             accountNumber: user.accountNumber,
-            socialSecurityNumber: user.socialSecurityNumber,
             bankName: user.bankName,
             referrerId: user.referrerId,
             token: generateToken(user._id),
         });
-        console.log("✅ 회원가입 완료:", user);
-        if (referrer) {
-            console.log("🔗 추천인 설정 완료:", referrer.fullName);
-        }
     })
 );
 // 로그인
@@ -175,6 +176,10 @@ router.post(
             throw new Error("모든 필드를 입력해주세요.");
         }
 
+        if (String(newPassword).length < 8) {
+            return res.status(400).json({ message: "비밀번호는 8자 이상이어야 합니다." });
+        }
+
         const user = await User.findOne({ fullName, memberId, phone });
 
         if (!user) {
@@ -222,8 +227,13 @@ router.put(
 
 router.put(
     "/restore/:userId",
+    protect,
     asyncHandler(async (req, res) => {
         const { userId } = req.params;
+
+        if (req.user.role !== "admin") {
+            return res.status(403).json({ message: "관리자만 회원을 복구할 수 있습니다." });
+        }
 
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
@@ -251,6 +261,7 @@ router.put(
 // 🔄 회원 정보 조회
 router.get(
     "/profile",
+    protect,
     asyncHandler(async (req, res) => {
         const token = req.headers.authorization?.split(" ")[1];
         if (!token) {
@@ -296,9 +307,14 @@ router.get(
 // 회원 정보 업데이트 (등급 반영 및 추천인 수당)
 router.put(
     "/update-profile/:userId",
+    protect,
     asyncHandler(async (req, res) => {
         const { userId } = req.params;
         const { additionalAmount } = req.body;
+
+        if (req.user.role !== "admin") {
+            return res.status(403).json({ message: "관리자만 구매 금액을 반영할 수 있습니다." });
+        }
 
         console.log("📝 업데이트 요청:", userId, additionalAmount);
 
@@ -360,8 +376,13 @@ router.put(
 // 🔄 추천인 수당 기록 조회
 router.get(
     "/referral-earnings/:userId",
+    protect,
     asyncHandler(async (req, res) => {
         const { userId } = req.params;
+
+        if (req.user.id !== userId && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 수당 정보만 조회할 수 있습니다." });
+        }
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
@@ -590,8 +611,13 @@ router.get(
 // /users/referral-earnings/:userId/:yearMonth
 router.get(
     "/referral-earnings/:userId/:yearMonth",
+    protect,
     asyncHandler(async (req, res) => {
         const { userId, yearMonth } = req.params;
+
+        if (req.user.id !== userId && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 수당 정보만 조회할 수 있습니다." });
+        }
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });

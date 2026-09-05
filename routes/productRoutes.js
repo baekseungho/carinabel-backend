@@ -5,6 +5,8 @@ const User = require("../models/User");
 const calculateDiscountedPrice = require("../utils/calculateDiscount");
 const asyncHandler = require("express-async-handler");
 const jwt = require("jsonwebtoken");
+const { protect } = require("../middleware/authMiddleware");
+const { adminOnly } = require("../middleware/adminMiddleware");
 
 // 🔄 모든 상품 조회 (회원 등급 할인 적용)
 router.get(
@@ -77,6 +79,8 @@ router.get(
 // ➕ 상품 등록
 router.post(
     "/add",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const { category, productName, koreanName, volume, consumerPrice, imagePath, detailImage, membershipLevel } =
             req.body;
@@ -104,6 +108,8 @@ router.post(
 // ✏️ 상품 수정
 router.put(
     "/update/:id",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const { category, productName, koreanName, volume, consumerPrice, membershipLevel } = req.body;
 
@@ -135,6 +141,8 @@ router.put(
 // 🗑️ 상품 삭제
 router.delete(
     "/delete/:id",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const product = await Product.findById(req.params.id);
         if (!product) {

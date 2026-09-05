@@ -4,6 +4,8 @@ const router = express.Router();
 const asyncHandler = require("express-async-handler");
 const QnA = require("../models/QnA");
 const mongoose = require("mongoose");
+const { protect } = require("../middleware/authMiddleware");
+const { adminOnly } = require("../middleware/adminMiddleware");
 
 // 📌 전체 게시글 목록 조회
 // router.get(
@@ -136,8 +138,13 @@ router.get(
 // 📌 내가 작성한 게시글 조회 (페이지네이션 적용)
 router.get(
     "/my",
+    protect,
     asyncHandler(async (req, res) => {
         const { userId, page = 1, size = 5 } = req.query;
+
+        if (req.user.id !== userId && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 문의만 조회할 수 있습니다." });
+        }
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
@@ -173,11 +180,16 @@ router.get(
 // 📌 게시글 작성
 router.post(
     "/",
+    protect,
     asyncHandler(async (req, res) => {
         const { title, category, content, userId, orderId, productName, imagePath } = req.body;
 
         if (!title || !category || !content || !userId) {
             return res.status(400).json({ message: "모든 필드를 입력해주세요." });
+        }
+
+        if (req.user.id !== userId) {
+            return res.status(403).json({ message: "본인의 문의만 작성할 수 있습니다." });
         }
 
         const newQnA = await QnA.create({
@@ -197,9 +209,14 @@ router.post(
 // 📌 게시글 수정
 router.put(
     "/:id",
+    protect,
     asyncHandler(async (req, res) => {
         const qna = await QnA.findById(req.params.id);
         if (!qna) return res.status(404).json({ message: "게시글을 찾을 수 없습니다." });
+
+        if (qna.userId.toString() !== req.user.id && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 문의만 수정할 수 있습니다." });
+        }
 
         const { title, category, content } = req.body;
         if (title) qna.title = title;
@@ -214,9 +231,13 @@ router.put(
 // 📌 게시글 삭제
 router.delete(
     "/:id",
+    protect,
     asyncHandler(async (req, res) => {
         const qna = await QnA.findById(req.params.id);
         if (!qna) return res.status(404).json({ message: "게시글을 찾을 수 없습니다." });
+        if (qna.userId.toString() !== req.user.id && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 문의만 삭제할 수 있습니다." });
+        }
         await qna.deleteOne();
         res.json({ message: "삭제되었습니다." });
     })
@@ -225,13 +246,15 @@ router.delete(
 // 📌 QnA 답변 등록 (관리자)
 router.put(
     "/answer/:id",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const qnaId = req.params.id;
-        const { content, adminId } = req.body;
+        const { content } = req.body;
 
         const updatedQna = await QnA.findByIdAndUpdate(
             qnaId,
-            { answer: { content, adminId, createdAt: new Date() } },
+            { answer: { content, adminId: req.user.id, createdAt: new Date() } },
             { new: true }
         );
 

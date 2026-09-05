@@ -18,8 +18,10 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: false,
         unique: true,
+        sparse: true,
         trim: true,
         lowercase: true,
+        set: (value) => value || undefined,
     },
     phone: {
         type: String,
@@ -33,6 +35,7 @@ const userSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true,
+        minlength: 8,
     },
     role: {
         type: String,

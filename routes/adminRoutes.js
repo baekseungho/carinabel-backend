@@ -19,22 +19,32 @@ const generateMemberId = require("../utils/generateMemberId");
 // 관리자 계정생성
 router.post(
     "/create",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const { fullName, memberId, password } = req.body;
 
-        const existingAdmin = await User.findOne({ memberId });
+        const normalizedName = String(fullName || "").trim();
+        const normalizedMemberId = String(memberId || "").trim().toLowerCase();
+        if (!normalizedName || !/^[a-z0-9]{4,30}$/.test(normalizedMemberId) || String(password || "").length < 8) {
+            return res.status(400).json({
+                message: "이름, 4~30자의 영문·숫자 아이디, 8자 이상의 비밀번호를 입력해 주세요.",
+            });
+        }
+
+        const existingAdmin = await User.findOne({ memberId: normalizedMemberId });
         if (existingAdmin) {
             res.status(400);
             throw new Error("이미 존재하는 관리자입니다.");
         }
 
         const adminUser = await User.create({
-            fullName,
-            memberId,
+            fullName: normalizedName,
+            memberId: normalizedMemberId,
             password,
             role: "admin",
             agreedToTerms: true,
-            phone: "000-0000-0000", // 👉 더미값
+            phone: `admin-${normalizedMemberId}`,
             birthday: new Date("1900-01-01"), // 👉 더미 생년월일
         });
 
@@ -214,6 +224,8 @@ router.put(
 // 관리자 주문 리스트 조회 API (상품명, 이름, 이메일로 필터링)
 router.get(
     "/orders",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const { page = 1, size = 10, orderNumber, productName, name, fromDate, toDate } = req.query;
 
@@ -475,6 +487,8 @@ router.get(
 // 수당 상세 정보 조회 API
 router.get(
     "/referral-details/:userId",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const { userId } = req.params;
 
@@ -492,6 +506,8 @@ router.get(
 // 수당 지급 처리 API
 router.post(
     "/referral-pay",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const { userId, amount } = req.body;
 

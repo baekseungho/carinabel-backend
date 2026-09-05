@@ -14,6 +14,7 @@ const cancelService = require("../services/cancelService");
 // 주문 생성 API
 router.post(
     "/create",
+    protect,
     asyncHandler(async (req, res) => {
         const {
             userId,
@@ -33,6 +34,10 @@ router.post(
 
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+        }
+
+        if (req.user.id !== userId && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 주문만 생성할 수 있습니다." });
         }
 
         console.log("🧾 주문 생성 요청:", req.body);
@@ -125,11 +130,16 @@ router.post(
 
 router.delete(
     "/delete-unpaid/:orderId",
+    protect,
     asyncHandler(async (req, res) => {
         const { orderId } = req.params;
 
         const order = await Order.findById(orderId);
         if (!order) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+
+        if (order.userId.toString() !== req.user.id && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 주문만 삭제할 수 있습니다." });
+        }
 
         if (order.status !== "입금대기") {
             return res.status(400).json({ message: "입금대기 상태가 아닙니다. 삭제할 수 없습니다." });
@@ -232,6 +242,14 @@ router.put(
             return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
         }
 
+        if (req.user.role !== "admin" && order.userId.toString() !== req.user.id) {
+            return res.status(403).json({ message: "본인의 주문만 변경할 수 있습니다." });
+        }
+
+        if (req.user.role !== "admin" && status !== "취소대기") {
+            return res.status(403).json({ message: "회원은 주문 취소 요청만 할 수 있습니다." });
+        }
+
         // ✅ 이미 취소 신청된 경우 막기
         if (order.status === "취소대기" && status === "취소대기") {
             return res.status(400).json({ message: "이미 취소가 신청된 주문입니다." });
@@ -293,8 +311,13 @@ router.get(
 // 주문 조회 API (개별 또는 전체)
 router.get(
     "/",
+    protect,
     asyncHandler(async (req, res) => {
         const { userId, page = 1, size = 5, status = "all" } = req.query;
+
+        if (req.user.role !== "admin" && (!userId || req.user.id !== userId)) {
+            return res.status(403).json({ message: "본인의 주문만 조회할 수 있습니다." });
+        }
 
         const match = userId ? { userId: new mongoose.Types.ObjectId(userId) } : {};
         if (status !== "all") {
@@ -316,8 +339,13 @@ router.get(
 // 추천 하위 유저들의 주문 조회
 router.get(
     "/referred/:referrerId",
+    protect,
     asyncHandler(async (req, res) => {
         const { referrerId } = req.params;
+
+        if (req.user.id !== referrerId && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 추천 조직만 조회할 수 있습니다." });
+        }
 
         if (!mongoose.Types.ObjectId.isValid(referrerId)) {
             return res.status(400).json({ message: "유효하지 않은 추천인 ID입니다." });
@@ -346,8 +374,13 @@ router.get(
 // 추천 하위 유저 주문(페이징)
 router.get(
     "/referred-paged",
+    protect,
     asyncHandler(async (req, res) => {
         const { referrerId, page = 1, size = 5 } = req.query;
+
+        if (req.user.id !== referrerId && req.user.role !== "admin") {
+            return res.status(403).json({ message: "본인의 추천 조직만 조회할 수 있습니다." });
+        }
 
         // 🔍 referrerId 유효성 검사
         if (!referrerId || !mongoose.Types.ObjectId.isValid(referrerId)) {
@@ -379,6 +412,7 @@ router.get(
 // 주문 상세 정보 통합 조회 API
 router.get(
     "/detail/:orderId",
+    protect,
     asyncHandler(async (req, res) => {
         const { orderId } = req.params;
 
@@ -392,6 +426,10 @@ router.get(
 
         if (!order) {
             return res.status(404).json({ message: "주문 정보를 찾을 수 없습니다." });
+        }
+
+        if (req.user.role !== "admin" && order.userId._id.toString() !== req.user.id) {
+            return res.status(403).json({ message: "본인의 주문만 조회할 수 있습니다." });
         }
 
         // 상품 정보 가져오기: 일반 상품 → 키트 순서로 시도

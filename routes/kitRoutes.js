@@ -6,9 +6,13 @@ const Product = require("../models/Product");
 const asyncHandler = require("express-async-handler");
 const calculateDiscountedPrice = require("../utils/calculateDiscount");
 const jwt = require("jsonwebtoken");
+const { protect } = require("../middleware/authMiddleware");
+const { adminOnly } = require("../middleware/adminMiddleware");
 // 🔹 키트 등록
 router.post(
     "/create",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const { kitName, products, price, originalPrice, description } = req.body;
         const kit = await Kit.create({
@@ -34,6 +38,8 @@ router.get(
 // 🔹 키트 수정
 router.put(
     "/:id",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const kit = await Kit.findByIdAndUpdate(req.params.id, req.body, {
             new: true,
@@ -46,6 +52,8 @@ router.put(
 // 🔹 키트 삭제
 router.delete(
     "/:id",
+    protect,
+    adminOnly,
     asyncHandler(async (req, res) => {
         const kit = await Kit.findByIdAndDelete(req.params.id);
         if (!kit) return res.status(404).json({ message: "해당 키트를 찾을 수 없습니다." });
