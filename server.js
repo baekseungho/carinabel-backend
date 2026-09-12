@@ -24,7 +24,8 @@ connectDB();
 
 // 서버 설정
 const app = express();
-app.set("trust proxy", 1);
+// Explicitly configure proxy trust for the actual deployment topology.
+app.set("trust proxy", process.env.TRUST_PROXY || false);
 app.use(helmet());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(express.json({ limit: "10mb" }));
@@ -56,6 +57,8 @@ app.use("/api/users/register", authLimiter);
 app.use("/api/users/find-member-id", authLimiter);
 app.use("/api/users/reset-password", authLimiter);
 app.use("/api/admin/login", authLimiter);
+app.use("/api/media", require("./routes/mediaRoutes"));
+app.use(require("./middleware/queryValidation"));
 // 기본 라우터
 app.get("/", (req, res) => {
     res.send("API is running...");

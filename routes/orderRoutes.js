@@ -11,10 +11,13 @@ const Address = require("../models/Address"); // 기본 배송지 모델
 const Kit = require("../models/Kit"); // 키트 모델도 불러오기
 const generateOrderNumber = require("../utils/generateOrderNumber");
 const cancelService = require("../services/cancelService");
+const canTransition = require("../utils/orderTransition");
+const localCheckoutUnavailable = require("../middleware/localCheckoutUnavailable");
 // 주문 생성 API
 router.post(
     "/create",
     protect,
+    localCheckoutUnavailable,
     asyncHandler(async (req, res) => {
         const {
             userId,
@@ -172,6 +175,7 @@ router.delete(
 router.post(
     "/cancel/:orderId",
     protect,
+    localCheckoutUnavailable,
     asyncHandler(async (req, res) => {
         const { orderId } = req.params;
         const { payMethod, trxId, amount, cancelReason } = req.body;
@@ -255,13 +259,13 @@ router.put(
             return res.status(400).json({ message: "이미 취소가 신청된 주문입니다." });
         }
 
-        order.status = status;
-
-        if (status === "취소대기" && reason) {
-            order.reason = reason;
-        }
-
-        await order.save();
+        if (!canTransition(order.status, status)) return res.status(409).json({ message: "허용되지 않는 주문 상태 변경입니다." });
+        if (reason !== undefined && (typeof reason !== "string" || reason.length > 1000)) return res.status(400).json({ message: "취소 사유를 확인해 주세요." });
+        const changes = { status };
+        if (status === "취소대기" && reason) changes.reason = reason;
+        const updated = await Order.updateOne({ _id: order._id, status: order.status }, { $set: changes });
+        if (updated.matchedCount !== 1) return res.status(409).json({ message: "다른 요청이 주문을 변경했습니다. 새로고침해 주세요." });
+        Object.assign(order, changes);
 
         res.json({ message: "주문 상태가 업데이트되었습니다.", order });
     })
@@ -271,6 +275,7 @@ router.put(
 router.get(
     "/payment-status/:orderNo",
     protect,
+    localCheckoutUnavailable,
     asyncHandler(async (req, res) => {
         const { orderNo } = req.params;
 

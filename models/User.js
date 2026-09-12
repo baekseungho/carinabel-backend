@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
 const userSchema = new mongoose.Schema({
+    addressRevision: { type: Number, default: 0, select: false },
     fullName: {
         type: String,
         required: true,

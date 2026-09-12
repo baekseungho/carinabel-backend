@@ -110,6 +110,10 @@ router.post(
     asyncHandler(async (req, res) => {
         const { memberIdOrId, password } = req.body;
 
+        if (typeof memberIdOrId !== "string" || !memberIdOrId.trim() || typeof password !== "string" || !password || password.length > 256) {
+            return res.status(400).json({ message: "아이디와 비밀번호를 확인해 주세요." });
+        }
+
         // 이메일 또는 ID로 사용자 조회
         const user = await User.findOne({
             $or: [{ memberId: memberIdOrId }, { userId: memberIdOrId }],
@@ -168,29 +172,9 @@ router.post(
 // 비밀번호 재설정
 router.post(
     "/reset-password",
-    asyncHandler(async (req, res) => {
-        const { fullName, memberId, phone, newPassword } = req.body;
-
-        if (!fullName || !memberId || !phone || !newPassword) {
-            res.status(400);
-            throw new Error("모든 필드를 입력해주세요.");
-        }
-
-        if (String(newPassword).length < 8) {
-            return res.status(400).json({ message: "비밀번호는 8자 이상이어야 합니다." });
-        }
-
-        const user = await User.findOne({ fullName, memberId, phone });
-
-        if (!user) {
-            res.status(404);
-            throw new Error("일치하는 회원 정보를 찾을 수 없습니다.");
-        }
-
-        user.password = newPassword; // 🔒 pre-save hook에서 암호화됨
-        await user.save();
-
-        res.json({ message: "비밀번호가 성공적으로 재설정되었습니다." });
+    (req, res) => res.status(503).json({
+        code: "PASSWORD_RECOVERY_UNAVAILABLE",
+        message: "비밀번호 재설정은 현재 고객센터로 문의해 주세요. 본인확인 후 안내해 드립니다.",
     })
 );
 
@@ -630,7 +614,7 @@ router.get(
         const earnings = await Referral.find({
             referrerId: userId,
             date: { $gte: start, $lte: end },
-        }).populate("referredUserId");
+        }).populate("referredUserId", "fullName memberId membershipLevel");
 
         res.json(earnings);
     })

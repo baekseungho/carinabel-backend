@@ -1,5 +1,7 @@
 const express = require("express");
 const router = express.Router();
+const literalSearch = require("../utils/literalSearch");
+const canTransition = require("../utils/orderTransition");
 const mongoose = require("mongoose");
 const asyncHandler = require("express-async-handler");
 const jwt = require("jsonwebtoken");
@@ -16,6 +18,7 @@ const Kit = require("../models/Kit");
 const Notice = require("../models/Notice");
 const axios = require("axios");
 const generateMemberId = require("../utils/generateMemberId");
+const transactionalAdmin = require("../utils/transactionalAdmin");
 // 관리자 계정생성
 router.post(
     "/create",
@@ -62,7 +65,11 @@ router.post(
     asyncHandler(async (req, res) => {
         const { adminId, password } = req.body;
 
-        const user = await User.findOne({ memberId: adminId, role: "admin" });
+        if (typeof adminId !== "string" || !adminId.trim() || typeof password !== "string" || !password || password.length > 256) {
+            return res.status(400).json({ message: "아이디와 비밀번호를 확인해 주세요." });
+        }
+
+        const user = await User.findOne({ memberId: adminId.trim().toLowerCase(), role: "admin", isDeleted: { $ne: true } });
 
         if (user && (await user.matchPassword(password))) {
             res.json({
@@ -90,8 +97,8 @@ router.get(
             isDeleted: false, // ✅ 탈퇴 회원 제외
         };
 
-        if (name) query.fullName = new RegExp(name, "i");
-        if (memberId) query.memberId = new RegExp(memberId, "i");
+        if (name) query.fullName = literalSearch(name);
+        if (memberId) query.memberId = literalSearch(memberId);
         if (level) query.membershipLevel = level;
 
         // ✅ 가입일 필터 추가
@@ -146,8 +153,8 @@ router.get(
             isDeleted: true, // ✅ 탈퇴 회원만 조회
         };
 
-        if (name) query.fullName = new RegExp(name, "i");
-        if (memberId) query.memberId = new RegExp(memberId, "i");
+        if (name) query.fullName = literalSearch(name);
+        if (memberId) query.memberId = literalSearch(memberId);
 
         // 가입일 필터
         if (fromDate || toDate) {
@@ -233,18 +240,18 @@ router.get(
 
         // 🔍 주문번호
         if (orderNumber) {
-            match.orderNumber = new RegExp(orderNumber, "i");
+            match.orderNumber = literalSearch(orderNumber);
         }
 
         // 🔍 상품명
         if (productName) {
-            match.productName = new RegExp(productName, "i");
+            match.productName = literalSearch(productName);
         }
 
         // 🔍 사용자 이름
         if (name) {
             const users = await User.find({
-                fullName: new RegExp(name, "i"),
+                fullName: literalSearch(name),
             }).select("_id");
             const userIds = users.map((u) => u._id);
             match.userId = { $in: userIds };
@@ -461,9 +468,9 @@ router.get(
         const { name, memberId, bankName, page = 1, size = 10 } = req.query;
 
         const filter = {};
-        if (name) filter.fullName = { $regex: name, $options: "i" };
-        if (memberId) filter.memberId = { $regex: memberId, $options: "i" };
-        if (bankName) filter.bankName = { $regex: bankName, $options: "i" };
+        if (name) filter.fullName = literalSearch(name);
+        if (memberId) filter.memberId = literalSearch(memberId);
+        if (bankName) filter.bankName = literalSearch(bankName);
 
         const limit = parseInt(size);
         const skip = (parseInt(page) - 1) * limit;
@@ -508,26 +515,26 @@ router.post(
     "/referral-pay",
     protect,
     adminOnly,
-    asyncHandler(async (req, res) => {
+    transactionalAdmin(async (req, res, session) => {
         const { userId, amount } = req.body;
+
+        if (!Number.isSafeInteger(amount) || amount <= 0) {
+            return res.status(400).json({ message: "지급 금액은 0보다 큰 정수로 입력해 주세요." });
+        }
 
         // ObjectId 유효성 검사 (정규식 사용)
         if (!String(userId).match(/^[0-9a-fA-F]{24}$/)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
-        const user = await User.findById(userId);
+        const user = await User.findOneAndUpdate(
+            { _id: userId, unpaidReferralEarnings: { $gte: amount } },
+            { $inc: { unpaidReferralEarnings: -amount, paidReferralEarnings: amount } },
+            { new: true, session }
+        );
         if (!user) {
-            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+            return res.status(409).json({ message: "회원이 없거나 미지급 수당이 부족합니다. 새로고침 후 확인해 주세요." });
         }
-
-        if (user.unpaidReferralEarnings < amount) {
-            return res.status(400).json({ message: "미지급 수당이 부족합니다." });
-        }
-
-        user.unpaidReferralEarnings -= amount;
-        user.paidReferralEarnings += amount;
-        await user.save();
 
         res.json({
             message: "수당 지급 완료",
@@ -552,7 +559,7 @@ router.get(
 
         if (name) {
             const users = await User.find({
-                fullName: new RegExp(name, "i"),
+                fullName: literalSearch(name),
             }).select("_id");
             query.userId = { $in: users.map((u) => u._id) };
         }
@@ -581,8 +588,9 @@ router.put(
             return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
         }
 
-        order.status = status;
-        await order.save();
+        if (!canTransition(order.status, status)) return res.status(409).json({ message: "허용되지 않는 주문 상태 변경입니다." });
+        const updated = await Order.updateOne({ _id: order._id, status: order.status }, { $set: { status } });
+        if (updated.matchedCount !== 1) return res.status(409).json({ message: "다른 요청이 주문을 변경했습니다. 새로고침해 주세요." });
 
         res.status(200).json({ message: "주문 상태가 업데이트되었습니다." });
     })
@@ -852,7 +860,7 @@ router.post(
     "/manual-order",
     protect,
     adminOnly,
-    asyncHandler(async (req, res) => {
+    transactionalAdmin(async (req, res, session) => {
         const {
             userId,
             productName,
@@ -864,11 +872,24 @@ router.post(
             orderType = "oil", // oil | kit
         } = req.body;
 
+        if (!Number.isSafeInteger(amount) || amount <= 0 ||
+            !Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 10000) {
+            return res.status(400).json({ message: "금액은 양의 정수, 수량은 1~10,000 사이의 정수로 입력해 주세요." });
+        }
+        if (typeof productName !== "string" || !productName.trim() ||
+            !["oil", "kit"].includes(orderType) ||
+            !["결제완료", "상품준비중", "배송중", "배송완료", "구매확정"].includes(status)) {
+            return res.status(400).json({ message: "상품과 주문 유형을 확인해 주세요. 수기 주문은 결제된 주문만 등록할 수 있습니다." });
+        }
+        if (deliveryDate !== null && (typeof deliveryDate !== "string" || !Number.isFinite(Date.parse(deliveryDate)))) {
+            return res.status(400).json({ message: "올바른 배송일을 입력해 주세요." });
+        }
+
         if (!mongoose.Types.ObjectId.isValid(userId)) {
             return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
         }
 
-        const user = await User.findById(userId);
+        const user = await User.findById(userId).session(session);
         if (!user) return res.status(404).json({ message: "회원을 찾을 수 없습니다." });
 
         // 🔄 재고 차감
@@ -876,7 +897,7 @@ router.post(
         const Kit = require("../models/Kit");
 
         if (orderType === "oil") {
-            const product = await Product.findOne({ koreanName: productName });
+            const product = await Product.findOne({ koreanName: productName }).session(session);
             if (!product) return res.status(404).json({ message: "상품을 찾을 수 없습니다." });
 
             if (product.stock < quantity) {
@@ -886,10 +907,15 @@ router.post(
             }
 
             product.stock -= quantity;
-            await product.save();
+            await product.save({ session });
         } else if (orderType === "kit") {
-            const kit = await Kit.findOne({ kitName: productName }).populate("products.productId");
+            const kit = await Kit.findOne({ kitName: productName }).session(session).populate("products.productId");
             if (!kit) return res.status(404).json({ message: "키트 상품을 찾을 수 없습니다." });
+
+            if (!kit.products.length || kit.products.some(item => !item.productId ||
+                !Number.isSafeInteger(item.quantity) || item.quantity <= 0)) {
+                return res.status(400).json({ message: "키트 구성품이 올바르지 않습니다. 상품 구성을 먼저 수정해 주세요." });
+            }
 
             // 구성품 재고 확인
             const insufficient = kit.products.find((item) => item.productId.stock < item.quantity * quantity);
@@ -902,8 +928,11 @@ router.post(
             // 구성품 재고 차감
             for (const item of kit.products) {
                 const product = item.productId;
-                product.stock -= item.quantity * quantity;
-                await product.save();
+                const updated = await Product.updateOne(
+                    { _id: product._id, stock: { $gte: item.quantity * quantity } },
+                    { $inc: { stock: -item.quantity * quantity } }, { session }
+                );
+                if (updated.modifiedCount !== 1) return res.status(409).json({ message: "구성품 재고가 부족합니다." });
             }
         } else {
             return res.status(400).json({ message: "잘못된 orderType입니다." });
@@ -911,10 +940,10 @@ router.post(
 
         // 주문 생성
         const generateOrderNumber = require("../utils/generateOrderNumber");
-        const orderNumber = await generateOrderNumber();
+        const orderNumber = await generateOrderNumber(session);
 
         const Order = require("../models/Order");
-        const newOrder = await Order.create({
+        const [newOrder] = await Order.create([{
             userId,
             productName,
             imagePath,
@@ -924,11 +953,11 @@ router.post(
             deliveryDate,
             orderType,
             orderNumber,
-        });
+        }], { session });
 
         // 통계 반영
         const Purchase = require("../models/Purchase");
-        await Purchase.create({ userId, amount });
+        await Purchase.create([{ userId, amount }], { session });
 
         // 등급/수당 반영
         const isFirstPurchase = !user.firstPurchaseDate;
@@ -942,10 +971,10 @@ router.post(
         const distributeReferralEarnings = require("../utils/referralEarnings");
         const shouldPayReferral = isFirstPurchase ? amount >= 550000 : true;
         if (user.referrerId && shouldPayReferral) {
-            await distributeReferralEarnings(user, amount, isFirstPurchase);
+            await distributeReferralEarnings(user, amount, isFirstPurchase, session);
         }
 
-        await user.save();
+        await user.save({ session });
 
         res.status(201).json({
             message: "수기 주문 및 회원 반영 완료",

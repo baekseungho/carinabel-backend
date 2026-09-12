@@ -64,6 +64,7 @@ const { adminOnly } = require("../middleware/adminMiddleware");
 // 📌 본인 게시글만 조회 (옵션: category, search, pagination)
 router.get(
     "/",
+    protect,
     asyncHandler(async (req, res) => {
         const {
             userId, // ✅ 추가: 본인 ID를 쿼리로 전달
@@ -74,10 +75,19 @@ router.get(
             size = "10",
         } = req.query;
 
-        const pageInt = Math.max(parseInt(page), 1);
-        const sizeInt = Math.max(parseInt(size), 1);
+        const pageInt = Math.max(1, Math.min(100000, parseInt(page) || 1));
+        const sizeInt = Math.max(1, Math.min(100, parseInt(size) || 10));
 
         const query = {};
+
+        if (req.user.role !== "admin") {
+            if (userId && userId !== req.user.id) {
+                return res.status(403).json({ message: "본인의 문의만 조회할 수 있습니다." });
+            }
+            query.userId = req.user.id;
+        } else if (userId && !mongoose.isObjectIdOrHexString(userId)) {
+            return res.status(400).json({ message: "유효하지 않은 사용자 ID입니다." });
+        }
 
         // ✅ 본인 글 필터링
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
@@ -89,7 +99,7 @@ router.get(
         }
 
         if (keyword) {
-            const regex = new RegExp(keyword, "i");
+            const regex = new RegExp(String(keyword).slice(0, 200).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
             if (searchType === "title") query.title = regex;
             else if (searchType === "content") query.content = regex;
             else if (searchType === "title_content") query.$or = [{ title: regex }, { content: regex }];
@@ -104,7 +114,7 @@ router.get(
             .limit(sizeInt);
 
         const result = qnas.map((item) => {
-            const maskedName = item.userId.fullName.replace(/.$/, "*");
+            const maskedName = item.userId?.fullName?.replace(/.$/, "*") || "탈퇴 회원";
             const hasAnswer = item.answer && item.answer.content;
 
             return {
@@ -166,8 +176,14 @@ router.get(
 // 📌 게시글 상세 조회 (+ 조회수 증가)
 router.get(
     "/:id",
+    protect,
     asyncHandler(async (req, res) => {
-        const qna = await QnA.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } }, { new: true })
+        if (!mongoose.isObjectIdOrHexString(req.params.id)) {
+            return res.status(400).json({ message: "유효하지 않은 문의 ID입니다." });
+        }
+        const filter = { _id: req.params.id };
+        if (req.user.role !== "admin") filter.userId = req.user.id;
+        const qna = await QnA.findOneAndUpdate(filter, { $inc: { views: 1 } }, { new: true })
             .populate("userId", "fullName memberId")
             .populate("answer.adminId", "fullName");
         if (!qna) {

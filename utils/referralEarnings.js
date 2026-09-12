@@ -10,13 +10,14 @@ const User = require("../models/User");
 async function distributeReferralEarnings(
     buyer,
     purchaseAmount,
-    isFirstPurchase
+    isFirstPurchase,
+    session = null
 ) {
     // 추천인이 없는 경우 수당 지급 불가
     if (!buyer.referrerId) return;
 
     // 추천인 정보 조회
-    const referrer = await User.findById(buyer.referrerId);
+    const referrer = await User.findById(buyer.referrerId).session(session);
     if (!referrer) return;
 
     // ❌ 일반회원이면 수당 지급 불가
@@ -33,19 +34,19 @@ async function distributeReferralEarnings(
     const commission = Math.floor(purchaseAmount * percentage);
 
     // 수당 기록 저장
-    await Referral.create({
+    await Referral.create([{
         referrerId: referrer._id, // 수당 받는 사람
         referredUserId: buyer._id, // 구매한 사람
         amount: commission, // 수당 금액
         percentage: percentage * 100, // 수당 비율 (예: 30)
         firstPurchase: isFirstPurchase, // 첫 구매 여부
-    });
+    }], { session });
 
     // 추천인 누적 수당 반영, 미지급수당 반영
 
     referrer.totalReferralEarnings += commission;
     referrer.unpaidReferralEarnings += commission;
-    await referrer.save();
+    await referrer.save({ session });
 
     console.log(
         `✅ 추천인 수당 지급 완료: ${commission}원 (${referrer.memberId})`
